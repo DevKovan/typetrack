@@ -1,6 +1,6 @@
 ---
 name: git-discipline
-description: Commit and branching conventions for the typetrack repo — one commit per issue, plain commit subjects (no Conventional Commits prefix), no Co-Authored-By trailer, commit straight to main, no PRs, no lingering branches.
+description: Commit and branching conventions for the typetrack repo — one commit per issue, plain commit subjects (no Conventional Commits prefix), no Co-Authored-By trailer, commit straight to main, no PRs, no lingering branches, never force-push.
 ---
 
 This is a deliberate departure from Claude Code's default git behavior,
@@ -29,3 +29,8 @@ to default habits mid-task.
 - No throwaway agent/session branches (e.g. `ao/<session-id>/root`-style)
   surviving past the work. If a branch was needed, delete it — local and
   remote — once it's merged or pushed to `main`.
+- Never force-push to `main`, ever, for any reason (squashing, "cleaning up"
+  history, resolving a diverged push). If a normal push is rejected as
+  non-fast-forward, that means someone else's commits are already on `main`
+  — pull/rebase on top of them, or stop and ask, but never overwrite shared
+  history with `--force`/`-f`.
