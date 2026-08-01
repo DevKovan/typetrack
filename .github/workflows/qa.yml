@@ -17,9 +17,21 @@ jobs:
         run: bun install
       - name: Build
         run: |
+          # Local sibling packages (`file:../..`-style deps) are hardlinked
+          # into node_modules at `bun install` time. `tsup`'s `clean: true`
+          # deletes and recreates `dist/` on every build (new inodes), which
+          # silently detaches those hardlinks -- a dependent package's build
+          # or `bun test` run can otherwise resolve a stale pre-build (or
+          # previous-build) snapshot of its sibling instead of what was just
+          # built. Re-running `bun install` after each build step (cheap: a
+          # no-op relink when the lockfile hasn't changed) refreshes those
+          # hardlinks before the next dependent package builds against them.
           bun run build
+          bun install
           cd packages/react && bun run build
-          cd ../next && bun run build
+          cd ..
+          bun install
+          cd next && bun run build
       - name: Lint
         run: bun run lint
       - name: Typecheck

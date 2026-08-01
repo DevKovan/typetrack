@@ -16,7 +16,8 @@
     "declaration": true,
     "noEmit": true,
     "paths": {
-      "typetrack": ["./src/index.ts"]
+      "typetrack": ["./src/index.ts"],
+      "@typetrack/react": ["./packages/react/src/index.ts"]
     }
   },
   "include": ["src", "packages/*/src", "tsup.config.ts"]
