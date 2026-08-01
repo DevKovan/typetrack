@@ -15,3 +15,10 @@ are the record, this is just a trail of what happened when.
   (SSE), `GET /schema`, `GET /health`, `typetrack.config.*` loading with
   chokidar hot-reload, and an opt-in `devServer` option on
   `createAnalytics()` that fire-and-forget POSTs tracked events to it.
+- Phase 4 (React + Next.js wrappers): `@typetrack/react` (`AnalyticsProvider`
+  context + `useAnalytics()` hook, React 19) and `@typetrack/next` (a
+  `"use client"`-boundary `AnalyticsProvider` for the App Router plus
+  `AnalyticsPageView` for automatic pageview tracking on route change),
+  both under `packages/`. Also fixed a clean-install CI gap: Bun hardlinks
+  `file:`-protocol sibling packages at install time, so `dist/` rebuilds
+  need a re-`bun install` in between to stay unstale.
