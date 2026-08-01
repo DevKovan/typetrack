@@ -1,17 +1,16 @@
 import { noopProvider, type AnalyticsProvider } from "./providers";
-import type { EventMap, EventMeta, TrackArgs } from "./schema";
+import { EventValidationError } from "./schema";
+import type { EventMap, EventMeta, SchemaMap, TrackArgs } from "./schema";
 
 export type { AnalyticsProvider } from "./providers";
-export type { EventMap, EventMeta } from "./schema";
+export type { EventMap, EventMeta, InferEvents, SchemaMap } from "./schema";
+export { EventValidationError } from "./schema";
 
-// `Events` isn't referenced in this interface's body yet, but keeping the
-// factory's `Events` type parameter threaded through its options type here
-// (rather than dropping it) keeps `createAnalytics<Events>(options)` sound
-// and leaves room for future event-map-typed options (e.g. schema
-// validation in a later issue) without a breaking signature change.
-// oxlint-disable-next-line no-unused-vars
 export interface CreateAnalyticsOptions<Events extends EventMap = EventMap> {
   provider?: AnalyticsProvider;
+  // Optional per-event Zod schemas. An event without an entry here is
+  // forwarded unvalidated, exactly as in issue 001. See `SchemaMap`.
+  schemas?: SchemaMap<Events>;
 }
 
 export interface Analytics<Events extends EventMap = EventMap> {
@@ -25,11 +24,25 @@ export function createAnalytics<Events extends EventMap = EventMap>(
   options: CreateAnalyticsOptions<Events> = {},
 ): Analytics<Events> {
   const provider = options.provider ?? noopProvider;
+  const schemas = options.schemas;
 
   return {
     track(event, ...args) {
-      const payload = (args[0] ?? {}) as Record<string, unknown>;
+      const rawPayload = args[0];
       const meta: EventMeta = { timestamp: Date.now() };
+
+      const schema = schemas?.[event];
+      let payload: Record<string, unknown>;
+      if (schema) {
+        const result = schema.safeParse(rawPayload);
+        if (!result.success) {
+          throw new EventValidationError(event as string, rawPayload, result.error);
+        }
+        payload = (result.data ?? {}) as Record<string, unknown>;
+      } else {
+        payload = (rawPayload ?? {}) as Record<string, unknown>;
+      }
+
       return provider.track(event as string, payload, meta);
     },
     identify(userId, traits) {

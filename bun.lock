@@ -11,7 +11,14 @@
         "oxlint": "1.76.0",
         "tsup": "8.5.1",
         "typescript": "6.0.3",
+        "zod": "4.4.3",
       },
+      "peerDependencies": {
+        "zod": "^4.0.0",
+      },
+      "optionalPeers": [
+        "zod",
+      ],
     },
     "packages/provider-ga4": {
       "name": "@typetrack/provider-ga4",
