@@ -4,5 +4,9 @@
   "private": true,
   "type": "module",
   "main": "src/index.ts",
-  "types": "src/index.ts"
+  "types": "src/index.ts",
+  "dependencies": {
+    "posthog-node": "^5.47.3",
+    "typetrack": "file:../.."
+  }
 }
