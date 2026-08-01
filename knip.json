@@ -5,17 +5,6 @@
       "entry": ["src/index.ts", "src/devServer/index.ts", "src/cli/index.ts"],
       "project": ["src/**/*.ts"]
     },
-    "packages/*": {},
-    "packages/next": {
-      // `next` is a required peerDependency (per this package's Next.js
-      // App Router `"use client"` boundary contract) and is listed as a
-      // devDependency here so it resolves locally for
-      // typecheck/lint/build/test, but nothing in `src/` imports from it
-      // directly yet -- automatic pageview tracking (the first feature that
-      // would import e.g. `next/navigation`) is deliberately out of scope
-      // for this package's current issue and lands in a follow-up. Without
-      // this, `knip` reports `next` as an unused devDependency.
-      "ignoreDependencies": ["next"]
-    }
+    "packages/*": {}
   }
 }

@@ -9,11 +9,35 @@
 // force this structure; duplicated here rather than shared cross-package.
 import "./testSetup";
 
-import { afterAll, describe, expect, it, mock, spyOn } from "bun:test";
+import { afterAll, beforeEach, describe, expect, it, mock, spyOn } from "bun:test";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
 import { AnalyticsProvider as ReactAnalyticsProvider, useAnalytics as reactUseAnalytics } from "@typetrack/react";
 import type { Analytics, EventMap } from "typetrack";
-import { AnalyticsProvider, useAnalytics } from "./index";
+
+// `next/navigation`'s `usePathname`/`useSearchParams` (consumed by
+// `./AnalyticsPageView`, transitively pulled in by `./index` below) are
+// mocked here via `mock.module`, following this repo's existing
+// `mock.module` convention from `packages/provider-posthog/src/index.test.ts`.
+// The mutable `mockPathname`/`mockSearch` closure variables let individual
+// tests change what the mocked hooks return between renders, to exercise
+// the pageview-on-route-change behavior without a real Next.js router.
+//
+// This -- not a static top-of-file import -- is *why* `./index` (and hence
+// `AnalyticsProvider`/`useAnalytics` too, reused below for the pre-existing
+// re-export tests) is imported dynamically after this `mock.module` call:
+// ES module static imports are hoisted and fully evaluated before any other
+// statement in this file runs, so a static `import ... from "./index"` here
+// would resolve (and cache) the *real* `next/navigation` module before this
+// `mock.module` call ever had a chance to run.
+let mockPathname = "/";
+let mockSearch = "";
+
+const usePathname = mock(() => mockPathname);
+const useSearchParams = mock(() => new URLSearchParams(mockSearch));
+
+mock.module("next/navigation", () => ({ usePathname, useSearchParams }));
+
+const { AnalyticsProvider, useAnalytics, AnalyticsPageView } = await import("./index");
 
 // See the module-level comment above for why these are `require(...)`'d
 // (not statically `import`ed) after `import "./testSetup"`. `jest-dom`'s
@@ -107,5 +131,103 @@ describe("AnalyticsProvider + useAnalytics from @typetrack/next (integration, re
     } finally {
       consoleErrorSpy.mockRestore();
     }
+  });
+});
+
+describe("AnalyticsPageView (integration, real @testing-library/react rendering, mocked next/navigation)", () => {
+  beforeEach(() => {
+    mockPathname = "/";
+    mockSearch = "";
+    usePathname.mockClear();
+    useSearchParams.mockClear();
+  });
+
+  it("mounts successfully with no consumer-provided Suspense boundary, and calls .page() once on mount with { name: pathname } when search params are empty", () => {
+    const fakeAnalytics = createFakeAnalytics();
+    mockPathname = "/dashboard";
+    mockSearch = "";
+
+    // No `<Suspense>` wraps `<AnalyticsPageView />` here -- proving the
+    // component's own internal Suspense boundary (see `AnalyticsPageView.tsx`)
+    // is sufficient for it to mount at all, per this issue's Acceptance
+    // criteria and Test requirements.
+    const { container } = render(
+      <AnalyticsProvider analytics={fakeAnalytics}>
+        <AnalyticsPageView />
+      </AnalyticsProvider>,
+    );
+
+    expect(container).toBeTruthy();
+    expect(fakeAnalytics.page).toHaveBeenCalledTimes(1);
+    expect(fakeAnalytics.page).toHaveBeenCalledWith("/dashboard", undefined);
+  });
+
+  it("calls .page() once on mount with { name: pathname, props: { search } } when search params are non-empty", () => {
+    const fakeAnalytics = createFakeAnalytics();
+    mockPathname = "/dashboard";
+    mockSearch = "tab=billing";
+
+    render(
+      <AnalyticsProvider analytics={fakeAnalytics}>
+        <AnalyticsPageView />
+      </AnalyticsProvider>,
+    );
+
+    expect(fakeAnalytics.page).toHaveBeenCalledTimes(1);
+    expect(fakeAnalytics.page).toHaveBeenCalledWith("/dashboard", { search: "tab=billing" });
+  });
+
+  it("calls .page() again with the new args after the mocked pathname/searchParams change and a rerender", () => {
+    const fakeAnalytics = createFakeAnalytics();
+    mockPathname = "/dashboard";
+    mockSearch = "";
+
+    const { rerender } = render(
+      <AnalyticsProvider analytics={fakeAnalytics}>
+        <AnalyticsPageView />
+      </AnalyticsProvider>,
+    );
+
+    expect(fakeAnalytics.page).toHaveBeenCalledTimes(1);
+
+    // Simulate client-side route navigation: the mocked hooks now return a
+    // new pathname/search, then the tree is force-rerendered (the same way
+    // Next.js's App Router re-renders this component's ancestor layout on
+    // navigation).
+    mockPathname = "/settings";
+    mockSearch = "tab=billing";
+
+    rerender(
+      <AnalyticsProvider analytics={fakeAnalytics}>
+        <AnalyticsPageView />
+      </AnalyticsProvider>,
+    );
+
+    expect(fakeAnalytics.page).toHaveBeenCalledTimes(2);
+    expect(fakeAnalytics.page).toHaveBeenNthCalledWith(2, "/settings", { search: "tab=billing" });
+  });
+
+  it("does not call .page() again on a rerender with the same mocked pathname/searchParams (dedup via the effect dependency array)", () => {
+    const fakeAnalytics = createFakeAnalytics();
+    mockPathname = "/dashboard";
+    mockSearch = "tab=billing";
+
+    const { rerender } = render(
+      <AnalyticsProvider analytics={fakeAnalytics}>
+        <AnalyticsPageView />
+      </AnalyticsProvider>,
+    );
+
+    expect(fakeAnalytics.page).toHaveBeenCalledTimes(1);
+
+    // An unrelated parent re-render: the mocked pathname/searchParams values
+    // are left unchanged, only the tree is rerendered.
+    rerender(
+      <AnalyticsProvider analytics={fakeAnalytics}>
+        <AnalyticsPageView />
+      </AnalyticsProvider>,
+    );
+
+    expect(fakeAnalytics.page).toHaveBeenCalledTimes(1);
   });
 });

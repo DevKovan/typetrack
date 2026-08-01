@@ -17,3 +17,17 @@ export { useAnalytics } from "@typetrack/react";
 // against `useAnalytics<MyEvents>()`/`<AnalyticsProvider analytics={...}>`
 // without a separate direct dependency on `typetrack` or `@typetrack/react`.
 export type { Analytics, EventMap } from "@typetrack/react";
+
+// Automatic pageview tracking on client-side route change -- see
+// `AnalyticsPageView.tsx`'s module-level comment. Carries its own
+// `"use client"` directive (reinjected as this package's `tsup.config.ts`
+// `banner` in the built `dist/` output, same as `AnalyticsProvider.tsx`).
+export { AnalyticsPageView } from "./AnalyticsPageView";
+
+// Re-exported alongside `AnalyticsPageView`: a consumer may want to unit
+// test or customize the `.page()` call shape (e.g. wrap it, or build an
+// equivalent tracker for a route not covered by this component) without
+// reimplementing the `name`/`props` logic themselves. This is a plain
+// function, not a component, so it carries no `"use client"` requirement of
+// its own.
+export { buildPageViewArgs, type PageViewArgs } from "./buildPageViewArgs";
