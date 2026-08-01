@@ -19,6 +19,7 @@ jobs:
         run: |
           bun run build
           cd packages/react && bun run build
+          cd ../next && bun run build
       - name: Lint
         run: bun run lint
       - name: Typecheck
