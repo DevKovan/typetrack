@@ -25,4 +25,24 @@ export default defineConfig([
     clean: false,
     splitting: false,
   },
+  // Bundled browser global build (`<script src="https://unpkg.com/typetrack">`
+  // with zero build tooling). `src/index.ts` has zero runtime dependencies
+  // (its imports from `./providers`/`./schema` are type-only), so this entry
+  // needs no `noExternal`/bundling decisions. tsup's default output naming
+  // for an IIFE build of an entry named `index` is `dist/index.global.js` --
+  // no collision with `dist/index.js` / `dist/index.cjs`. Runs after the two
+  // entries above in the same `tsup` invocation -- must not wipe out their
+  // already-written `dist/` output, and `.d.ts` is already emitted by entry
+  // 1 so this entry doesn't need its own.
+  {
+    entry: ["src/index.ts"],
+    format: ["iife"],
+    globalName: "Typetrack",
+    minify: true,
+    dts: false,
+    clean: false,
+    splitting: false,
+    platform: "browser",
+    sourcemap: true,
+  },
 ]);
