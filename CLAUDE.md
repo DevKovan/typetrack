@@ -7,8 +7,18 @@
 - **Zero vendor deps in core**: `src/` ships only the `AnalyticsProvider`
   interface (`src/providers/index.ts`) plus a local no-op provider. No
   vendor/provider SDK code lives in core, ever.
-- **Single provider, not an array**: `createAnalytics` takes one optional
-  `provider`, not a list of providers.
+- **Single provider by default, array to opt into multi-provider fan-out**:
+  `createAnalytics` accepts `provider?: AnalyticsProvider | AnalyticsProvider[]`.
+  Most apps use one provider — that stays the ergonomic default — but an
+  array fans out every event to all listed providers. (Supersedes the
+  earlier "single provider, not an array" decision — revised after the
+  vision-doc gap analysis in `plan/`.)
+- **Vision**: TypeTrack aims to be "Prisma for Analytics" — the app depends
+  only on `typetrack`, never on a vendor SDK; switching providers should
+  require changing one file, not application code/event names/payloads.
+  See the architecture/gap-analysis notes under `plan/` for the full target
+  architecture (canonical event model, middleware, routing, plugins,
+  privacy, reliability, etc.) and current status against it.
 - **Monorepo**: Bun workspaces (`packages/*`). Toolchain is devDependencies
   only: Bun (install + test runner), `tsgo` (`@typescript/native-preview`,
   TS7 native port) for fast typechecking, `typescript` 6.x (`tsc`) as the
