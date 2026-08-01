@@ -11,6 +11,13 @@ export interface CreateAnalyticsOptions<Events extends EventMap = EventMap> {
   // Optional per-event Zod schemas. An event without an entry here is
   // forwarded unvalidated, exactly as in issue 001. See `SchemaMap`.
   schemas?: SchemaMap<Events>;
+  // Optional opt-out from the issue-002 default (`track()` throwing a
+  // synchronous `EventValidationError` on a failed validation). When
+  // supplied, a failed validation instead calls this handler with the
+  // `EventValidationError` and `track()` returns normally without calling
+  // the provider. If the handler itself throws, that exception propagates
+  // out of `track()` as-is -- it is not swallowed.
+  onValidationError?: (error: EventValidationError) => void;
 }
 
 export interface Analytics<Events extends EventMap = EventMap> {
@@ -25,6 +32,7 @@ export function createAnalytics<Events extends EventMap = EventMap>(
 ): Analytics<Events> {
   const provider = options.provider ?? noopProvider;
   const schemas = options.schemas;
+  const onValidationError = options.onValidationError;
 
   return {
     track(event, ...args) {
@@ -36,7 +44,12 @@ export function createAnalytics<Events extends EventMap = EventMap>(
       if (schema) {
         const result = schema.safeParse(rawPayload);
         if (!result.success) {
-          throw new EventValidationError(event as string, rawPayload, result.error);
+          const error = new EventValidationError(event as string, rawPayload, result.error);
+          if (onValidationError) {
+            onValidationError(error);
+            return;
+          }
+          throw error;
         }
         payload = (result.data ?? {}) as Record<string, unknown>;
       } else {
