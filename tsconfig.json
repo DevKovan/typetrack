@@ -5,6 +5,7 @@
     "module": "ESNext",
     "moduleResolution": "Bundler",
     "moduleDetection": "force",
+    "jsx": "react-jsx",
     "types": ["bun"],
     "strict": true,
     "ignoreDeprecations": "6.0",

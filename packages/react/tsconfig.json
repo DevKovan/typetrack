@@ -1,0 +1,18 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    // Reset (not merged -- an explicit `paths` here fully replaces the
+    // inherited one) the root tsconfig's `"typetrack": ["./src/index.ts"]`
+    // alias. That alias exists so root `src`/`packages/provider-*` code can
+    // typecheck against `typetrack`'s source directly without a build step.
+    // For this package it instead needs `typetrack` to resolve through
+    // normal `node_modules` resolution (this package's own
+    // `dependencies.typetrack: "file:../.."`, symlinked into
+    // `packages/react/node_modules/typetrack`) -- otherwise `tsup`'s `.d.ts`
+    // bundling step sees the same `Analytics`/`EventMap` types reachable via
+    // two different resolution paths and fails with "Circular definition of
+    // import alias".
+    "paths": {}
+  },
+  "include": ["src"]
+}
