@@ -2,6 +2,7 @@ import { z } from "zod";
 import { formatSuccessLine, formatValidationDiff } from "./format";
 import { deletePortFile, writePortFile } from "./portFile";
 import { findFreePort, waitForHealthy } from "./ports";
+import { createSseUnderlyingSource } from "./sse";
 
 export interface DevServerOptions {
   startPort?: number;
@@ -30,6 +31,10 @@ export interface DevServerHandle {
   getEvents(): DevServerEvent[];
   subscribe(listener: DevServerListener): () => void;
   stop(): Promise<void>;
+  // Testing-only accessor for the number of currently-registered `subscribe()`
+  // listeners (including active SSE clients) -- lets tests assert a
+  // subscription was actually released on disconnect/unsubscribe.
+  getSubscriberCount(): number;
 }
 
 const MAX_BIND_ATTEMPTS = 3;
@@ -63,6 +68,10 @@ export async function startDevServer(options: DevServerOptions = {}): Promise<De
   function subscribe(listener: DevServerListener): () => void {
     listeners.add(listener);
     return () => listeners.delete(listener);
+  }
+
+  function getSubscriberCount(): number {
+    return listeners.size;
   }
 
   // Validates against the currently-loaded schema (if any), appends to the
@@ -132,6 +141,24 @@ export async function startDevServer(options: DevServerOptions = {}): Promise<De
     return jsonResponse({ ok: true }, 200);
   }
 
+  // Live SSE feed of events recorded from this point forward (no replay of
+  // buffered history -- see 003's "Out of scope"). `server.timeout(request, 0)`
+  // disables Bun's default idle-connection timeout for this one request,
+  // since an SSE connection is expected to sit open (and otherwise idle
+  // between events) indefinitely.
+  function handleGetEventsStream(request: Request, server: ReturnType<typeof Bun.serve>): Response {
+    server.timeout(request, 0);
+    const stream = new ReadableStream<Uint8Array>(createSseUnderlyingSource(subscribe));
+    return new Response(stream, {
+      status: 200,
+      headers: {
+        "content-type": "text/event-stream",
+        "cache-control": "no-cache",
+        connection: "keep-alive",
+      },
+    });
+  }
+
   // The real bind may itself hit the probe-then-release race noted in
   // `findFreePort`'s comment (something else claims the candidate port
   // between the probe and this real bind) -- retry a small number of times,
@@ -151,6 +178,9 @@ export async function startDevServer(options: DevServerOptions = {}): Promise<De
           "/events": {
             POST: handlePostEvents,
             GET: handleGetEvents,
+          },
+          "/events/stream": {
+            GET: handleGetEventsStream,
           },
           "/schema": {
             GET: handleGetSchema,
@@ -195,6 +225,7 @@ export async function startDevServer(options: DevServerOptions = {}): Promise<De
     setSchemas,
     getEvents,
     subscribe,
+    getSubscriberCount,
     async stop() {
       boundServer.stop(true);
       await deletePortFile();
