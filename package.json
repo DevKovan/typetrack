@@ -37,6 +37,9 @@
       "optional": true
     }
   },
+  "dependencies": {
+    "chokidar": "^5.0.0"
+  },
   "devDependencies": {
     "@types/bun": "1.3.14",
     "@typescript/native-preview": "7.0.0-dev.20260707.2",
