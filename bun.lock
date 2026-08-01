@@ -28,7 +28,7 @@
       "name": "@typetrack/next",
       "version": "0.0.0",
       "dependencies": {
-        "@typetrack/react": "file:../react",
+        "@typetrack/react": "workspace:*",
         "typetrack": "file:../..",
       },
       "devDependencies": {
@@ -670,7 +670,7 @@
 
     "typescript": ["typescript@6.0.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw=="],
 
-    "typetrack": ["typetrack@root:", {}],
+    "typetrack": ["typetrack@root:", { "bin": { "typetrack": "./dist/cli.js" } }],
 
     "ufo": ["ufo@1.6.4", "", {}, "sha512-JFNbkD1Svwe0KvGi8GOeLcP4kAWQ609twvCdcHxq1oSL8svv39ZuSvajcD8B+5D0eL4+s1Is2D/O6KN3qcTeRA=="],
 
@@ -690,11 +690,7 @@
 
     "@testing-library/jest-dom/dom-accessibility-api": ["dom-accessibility-api@0.6.3", "", {}, "sha512-7ZgogeTnjuHbo+ct10G9Ffp0mif17idi0IyWNVA/wcwcm7NPOD/WEHVP3n7n3MhXqxoIYm8d6MuZohYWIZ4T3w=="],
 
-    "@typetrack/next/@typetrack/react": ["@typetrack/react@file:packages/react", { "dependencies": { "typetrack": "file:../.." }, "devDependencies": { "@happy-dom/global-registrator": "20.11.1", "@testing-library/dom": "10.4.1", "@testing-library/jest-dom": "7.0.0", "@testing-library/react": "16.3.2", "@types/react": "19.2.18", "@types/react-dom": "19.2.4", "@typescript/native-preview": "7.0.0-dev.20260707.2", "knip": "6.31.0", "oxlint": "1.76.0", "react": "19.2.8", "react-dom": "19.2.8", "tsup": "8.5.1", "typescript": "6.0.3" }, "peerDependencies": { "react": "^19.0.0", "react-dom": "^19.0.0" } }],
-
     "tsup/chokidar": ["chokidar@4.0.3", "", { "dependencies": { "readdirp": "^4.0.1" } }, "sha512-Qgzu8kfBvo+cA4962jnP1KkS6Dop5NS6g7R5LFYJr4b8Ub94PPQXUksCw9PvXoeXPRRddRNC5C1JQUR2SMGtnA=="],
-
-    "@typetrack/next/@typetrack/react/typetrack": ["typetrack@file:.", {}],
 
     "tsup/chokidar/readdirp": ["readdirp@4.1.2", "", {}, "sha512-GDhwkLfywWL2s6vEjyhri+eXmfH6j1L7JE27WhqLeYzoh/A3DBaYGEj2H/HFZCn/kMfim73FXxEJTw06WtxQwg=="],
   }

@@ -16,22 +16,34 @@ jobs:
       - name: Install dependencies
         run: bun install
       - name: Build
-        run: |
-          # Local sibling packages (`file:../..`-style deps) are hardlinked
-          # into node_modules at `bun install` time. `tsup`'s `clean: true`
-          # deletes and recreates `dist/` on every build (new inodes), which
-          # silently detaches those hardlinks -- a dependent package's build
-          # or `bun test` run can otherwise resolve a stale pre-build (or
-          # previous-build) snapshot of its sibling instead of what was just
-          # built. Re-running `bun install` after each build step (cheap: a
-          # no-op relink when the lockfile hasn't changed) refreshes those
-          # hardlinks before the next dependent package builds against them.
-          bun run build
-          bun install
-          cd packages/react && bun run build
-          cd ..
-          bun install
-          cd next && bun run build
+        # Empirically verified (macOS, Bun 1.3.14): `packages/react` and
+        # `packages/next`'s sibling-workspace dep (`@typetrack/react`,
+        # `workspace:*`) is materialized as a live symlink into the sibling
+        # package's own directory (e.g.
+        # `packages/next/node_modules/@typetrack/react -> ../../../react`),
+        # so it always sees that package's latest built `dist/` with no
+        # relink needed -- this is what fixed the original "Cannot find
+        # module '@typetrack/react'" failure. Root `typetrack`, however,
+        # cannot be depended on via `workspace:*` at all: Bun only resolves
+        # `workspace:*` for packages matched by the `workspaces` glob
+        # (`packages/*`), and the monorepo root is not itself a glob
+        # member (verified: `workspace:*` install fails outright if
+        # attempted for it), so it stays on `file:../..`. On macOS that
+        # materializes as a *clonefile snapshot* (not a hardlink) taken at
+        # `bun install` time, under
+        # `node_modules/.bun/typetrack@root/node_modules/typetrack` -- a
+        # real, independent directory, not a live link back to the repo
+        # root (on Linux, where clonefile isn't available, Bun's default
+        # backend falls back to a hardlink of the same snapshot-at-install
+        # semantics). `tsup`'s `clean: true` deletes and recreates root
+        # `dist/` on every build, and that snapshot/hardlink is never
+        # auto-refreshed, so `packages/react`'s `tsup --dts` build (it
+        # re-exports types from `typetrack`) fails to resolve `typetrack`'s
+        # types unless `bun install` is re-run after root is built to
+        # refresh it. `bun run build:all` (root package.json) already does
+        # this internally (`build && bun install && build react && build
+        # next`), so this CI step only needs to invoke it once.
+        run: bun run build:all
       - name: Lint
         run: bun run lint
       - name: Typecheck

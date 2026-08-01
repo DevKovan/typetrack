@@ -31,7 +31,7 @@
     "next": "^14.0.0 || ^15.0.0 || ^16.0.0"
   },
   "dependencies": {
-    "@typetrack/react": "file:../react",
+    "@typetrack/react": "workspace:*",
     "typetrack": "file:../.."
   },
   "devDependencies": {
