@@ -7,3 +7,5 @@ are the record, this is just a trail of what happened when.
   oxlint, knip, tsup), CI, subagents, git-discipline + grill-me skills.
 - Phase 1 (core): `createAnalytics<Events>()` generic factory, optional
   per-event Zod schemas via `z.infer`, configurable `onValidationError`.
+- Phase 2 (providers): server-side `AnalyticsProvider` adapters for
+  PostHog, Segment, and GA4 (Measurement Protocol) under `packages/`.
