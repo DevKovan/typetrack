@@ -45,6 +45,16 @@ async function waitUntil(predicate: () => boolean, timeoutMs = 4000, intervalMs 
   throw new Error("waitUntil: condition never became true within the timeout");
 }
 
+// chokidar's `watch()` returns synchronously, but the underlying OS watch
+// (and its initial directory scan) is established asynchronously -- a file
+// write that lands before that setup finishes can race it and never
+// produce a `change` event. Waiting on chokidar's own `ready` event (fired
+// once the watcher is fully armed) is the real signal to wait on, rather
+// than hoping enough incidental `await`s happened first.
+function waitForWatcherReady(watcher: FSWatcher): Promise<void> {
+  return new Promise((resolve) => watcher.on("ready", resolve));
+}
+
 describe("config loading + chokidar hot reload wired to a real dev server", () => {
   it(
     "hot-swaps the live schema on a config file edit, without restarting the server or changing its port",
@@ -72,6 +82,8 @@ export default { schemas: { signup_completed: z.object({ plan: z.string() }) } }
           handle?.setSchemas(schemas);
         },
       });
+
+      await waitForWatcherReady(watcher);
 
       const payload = { event: "signup_completed", payload: { plan: "pro" } };
 
@@ -126,6 +138,8 @@ export default { schemas: { signup_completed: z.object({ plan: z.string() }) } }
           lastError = error;
         },
       });
+
+      await waitForWatcherReady(watcher);
 
       const originalConsoleError = console.error;
       const errorLines: string[] = [];
