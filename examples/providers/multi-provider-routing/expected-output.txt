@@ -1,0 +1,82 @@
+This is the literal console output produced by `bun run index.ts`.
+
+The `anonymousId` values below are illustrative -- each is freshly generated
+via `crypto.randomUUID()` on every run, so your actual values WILL DIFFER.
+Which simulated user (A or B) ends up "IN" vs. "OUT" of the `sampling: 0.5`
+provider is ALSO random per run (see the "Explanation" section of the
+README) -- this particular capture happened to land user-A "OUT" and user-B
+"IN", but a different run could show both "IN", both "OUT", or the opposite
+assignment. What's NOT random, and IS exactly reproducible on every run: the
+event names, which providers do/don't receive each event, and the call order
+whenever multiple providers receive the same event.
+
+=== Simulated user A ===
+[user-A] [marketing-pixel] track "Checkout Started"
+[user-A] [debug-console] track "Checkout Started"
+[user-A] [analytics-warehouse] track "Checkout Started"
+[user-A] [marketing-pixel] track "Purchase Completed"
+[user-A] [analytics-warehouse] track "Purchase Completed"
+[user-A] [debug-console] track "debug.cache_miss"
+[user-A] [marketing-pixel] track "Page Viewed"
+[user-A] [analytics-warehouse] identify userId=user_88 anonymousId=998d0949-b70c-4327-92f9-36de37578900
+[user-A] [marketing-pixel] identify userId=user_88 anonymousId=998d0949-b70c-4327-92f9-36de37578900
+[user-A] [debug-console] identify userId=user_88 anonymousId=998d0949-b70c-4327-92f9-36de37578900
+[user-A] [full-featured] identify userId=user_88 anonymousId=998d0949-b70c-4327-92f9-36de37578900
+[user-A] [analytics-warehouse] flush
+[user-A] [marketing-pixel] flush
+[user-A] [debug-console] flush
+[user-A] [full-featured] flush
+[user-A] full-featured sampling decision: OUT (0/4 track calls received)
+[user-A] call order for "Checkout Started": marketing-pixel -> debug-console -> analytics-warehouse
+
+=== Simulated user B ===
+[user-B] [full-featured] track "Checkout Started"
+[user-B] [marketing-pixel] track "Checkout Started"
+[user-B] [debug-console] track "Checkout Started"
+[user-B] [analytics-warehouse] track "Checkout Started"
+[user-B] [full-featured] track "Purchase Completed"
+[user-B] [marketing-pixel] track "Purchase Completed"
+[user-B] [analytics-warehouse] track "Purchase Completed"
+[user-B] [full-featured] track "debug.cache_miss"
+[user-B] [debug-console] track "debug.cache_miss"
+[user-B] [full-featured] track "Page Viewed"
+[user-B] [marketing-pixel] track "Page Viewed"
+[user-B] [analytics-warehouse] identify userId=user_88 anonymousId=1fdb2bea-b1eb-47c4-ae56-1ced4d9ff94c
+[user-B] [marketing-pixel] identify userId=user_88 anonymousId=1fdb2bea-b1eb-47c4-ae56-1ced4d9ff94c
+[user-B] [debug-console] identify userId=user_88 anonymousId=1fdb2bea-b1eb-47c4-ae56-1ced4d9ff94c
+[user-B] [full-featured] identify userId=user_88 anonymousId=1fdb2bea-b1eb-47c4-ae56-1ced4d9ff94c
+[user-B] [analytics-warehouse] flush
+[user-B] [marketing-pixel] flush
+[user-B] [debug-console] flush
+[user-B] [full-featured] flush
+[user-B] full-featured sampling decision: IN (4/4 track calls received)
+[user-B] call order for "Checkout Started": full-featured -> marketing-pixel -> debug-console -> analytics-warehouse
+
+Notes on what's happening above, per event, and why:
+- "Checkout Started" (context: development): matches
+  analytics-warehouse's `include`, is not excluded by marketing-pixel's
+  `exclude`, and matches debug-console's `predicate` -- all 3 always receive
+  it. full-featured only receives it when this simulated user's anonymousId
+  samples "in" at the 0.5 rate (user-B here, not user-A).
+- "Purchase Completed" (context: production): same include/exclude outcome
+  as "Checkout Started", but debug-console's predicate fails (environment is
+  "production", not "development") -- debug-console never logs this event.
+- "debug.cache_miss" (context: development): excluded by marketing-pixel's
+  `exclude` (`/^debug\./` matches), not matched by analytics-warehouse's
+  `include` (not a commerce event name) -- only debug-console (predicate
+  matches) and, when sampled in, full-featured receive it.
+- "Page Viewed" (no context at all): not commerce (fails `include`), not
+  debug-namespaced (passes `exclude`), and has no `context.environment` to
+  satisfy debug-console's `predicate` -- only marketing-pixel (and, when
+  sampled in, full-featured) receive it.
+- `identify()`: always fans out to all 4 providers unconditionally, which is
+  why every provider (including analytics-warehouse and debug-console, which
+  received 0-2 of the 4 track() calls above) logs exactly one identify line.
+- `flush()`: likewise reaches all 4 providers unconditionally, exactly once
+  each (this flow never calls `destroy()` -- see the README).
+- Call order for "Checkout Started" is ascending by each entry's `priority`
+  (full-featured=0, marketing-pixel=10, debug-console=20,
+  analytics-warehouse=30) -- note this is the *opposite* of the array
+  declaration order in `index.ts` (analytics-warehouse is declared first,
+  full-featured last), which is exactly the point: `priority` controls call
+  order, not array position.
