@@ -1,9 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import type { CanonicalEvent } from "typetrack";
 import { createPostHogProvider } from "./index";
 
 // Integration test -- a real HTTP round-trip against a local Bun.serve()
-// server standing in for PostHog's ingestion endpoint. Never talks to real
-// PostHog infrastructure or credentials.
+// server standing in for PostHog's ingestion endpoint (`{host}/batch/`).
+// Never talks to real PostHog infrastructure or credentials.
 
 interface RecordedRequest {
   path: string;
@@ -38,34 +39,41 @@ afterEach(() => {
   server.stop(true);
 });
 
+function batchEvents(): Array<Record<string, unknown>> {
+  return received
+    .filter((r) => r.path === "/batch/")
+    .flatMap((r) => (r.body as { batch: Array<Record<string, unknown>> }).batch);
+}
+
+function makeEvent(overrides: Partial<CanonicalEvent> = {}): CanonicalEvent {
+  return {
+    name: "Purchase Completed",
+    properties: {},
+    timestamp: 1_700_000_000_000,
+    anonymousId: "anon-1",
+    sessionId: "session-1",
+    ...overrides,
+  };
+}
+
 describe("createPostHogProvider (integration)", () => {
-  it("sends track() and identify() calls to the local server's /batch/ endpoint", async () => {
+  it("sends track() calls with distinctId derived directly from the event, before and after a simulated identity change", async () => {
     const provider = createPostHogProvider({
       apiKey: "test",
       host: server.url.toString(),
       flushAt: 1,
     });
 
-    provider.identify?.("user_1", { plan: "pro" });
-    provider.track("signup_completed", { plan: "pro" }, { timestamp: 1_700_000_000_000 });
+    provider.track(makeEvent({ name: "Purchase Completed", anonymousId: "anon-1", userId: undefined }));
+    provider.track(makeEvent({ name: "Purchase Completed", anonymousId: "anon-1", userId: "user_1" }));
 
     await provider.flush?.();
 
-    const batchRequests = received.filter((r) => r.path === "/batch/");
-    expect(batchRequests.length).toBeGreaterThan(0);
-
-    const events = batchRequests.flatMap((r) => (r.body as { batch: Array<Record<string, unknown>> }).batch);
-
-    const identifyEvent = events.find((e) => e["event"] === "$identify");
-    expect(identifyEvent).toBeDefined();
-    expect(identifyEvent?.["distinct_id"]).toBe("user_1");
-
-    const trackEvent = events.find((e) => e["event"] === "signup_completed");
-    expect(trackEvent).toBeDefined();
-    expect(trackEvent?.["distinct_id"]).toBe("user_1");
-    const properties = trackEvent?.["properties"] as Record<string, unknown>;
-    expect(properties?.["plan"]).toBe("pro");
-    expect(trackEvent?.["timestamp"]).toBe(new Date(1_700_000_000_000).toISOString());
+    const events = batchEvents().filter((e) => e["event"] === "Purchase Completed");
+    expect(events).toHaveLength(2);
+    expect(events[0]?.["distinct_id"]).toBe("anon-1");
+    expect(events[1]?.["distinct_id"]).toBe("user_1");
+    expect(events[1]?.["timestamp"]).toBe(new Date(1_700_000_000_000).toISOString());
   });
 
   it("sends page() calls as a $pageview event to /batch/", async () => {
@@ -75,16 +83,85 @@ describe("createPostHogProvider (integration)", () => {
       flushAt: 1,
     });
 
-    provider.page?.("Home", { referrer: "google" });
+    provider.page?.(makeEvent({ name: "Home", properties: { referrer: "google" } }));
     await provider.flush?.();
 
-    const batchRequests = received.filter((r) => r.path === "/batch/");
-    const events = batchRequests.flatMap((r) => (r.body as { batch: Array<Record<string, unknown>> }).batch);
-
-    const pageviewEvent = events.find((e) => e["event"] === "$pageview");
+    const pageviewEvent = batchEvents().find((e) => e["event"] === "$pageview");
     expect(pageviewEvent).toBeDefined();
     const properties = pageviewEvent?.["properties"] as Record<string, unknown>;
     expect(properties?.["name"]).toBe("Home");
     expect(properties?.["referrer"]).toBe("google");
+  });
+
+  it("sends screen() calls as a $screen event to /batch/", async () => {
+    const provider = createPostHogProvider({
+      apiKey: "test",
+      host: server.url.toString(),
+      flushAt: 1,
+    });
+
+    provider.screen?.(makeEvent({ name: "Onboarding", properties: { step: 1 } }));
+    await provider.flush?.();
+
+    const screenEvent = batchEvents().find((e) => e["event"] === "$screen");
+    expect(screenEvent).toBeDefined();
+    const properties = screenEvent?.["properties"] as Record<string, unknown>;
+    expect(properties?.["name"]).toBe("Onboarding");
+    expect(properties?.["step"]).toBe(1);
+  });
+
+  it("sends group() calls with the fixed groupType/groupKey to /batch/", async () => {
+    const provider = createPostHogProvider({
+      apiKey: "test",
+      host: server.url.toString(),
+      flushAt: 1,
+    });
+
+    provider.group?.("acme", { plan: "pro" }, { anonymousId: "anon-1" });
+    await provider.flush?.();
+
+    const groupEvent = batchEvents().find((e) => e["event"] === "$groupidentify");
+    expect(groupEvent).toBeDefined();
+    const properties = groupEvent?.["properties"] as Record<string, unknown>;
+    expect(properties?.["$group_type"]).toBe("group");
+    expect(properties?.["$group_key"]).toBe("acme");
+    expect(properties?.["$group_set"]).toEqual({ plan: "pro" });
+  });
+
+  it("sends alias() calls with the correct distinctId/alias fields to /batch/", async () => {
+    const provider = createPostHogProvider({
+      apiKey: "test",
+      host: server.url.toString(),
+      flushAt: 1,
+    });
+
+    provider.alias?.("user_new", "user_old", "anon-1");
+    await provider.flush?.();
+
+    const aliasEvent = batchEvents().find((e) => e["event"] === "$create_alias");
+    expect(aliasEvent).toBeDefined();
+    expect(aliasEvent?.["distinct_id"]).toBe("user_new");
+    const properties = aliasEvent?.["properties"] as Record<string, unknown>;
+    expect(properties?.["alias"]).toBe("user_old");
+  });
+
+  it("destroy() flushes pending events and the server receives no further requests after it resolves", async () => {
+    const provider = createPostHogProvider({
+      apiKey: "test",
+      host: server.url.toString(),
+      flushAt: 10,
+      flushInterval: 60_000,
+    });
+
+    provider.track(makeEvent({ name: "Purchase Completed" }));
+
+    await provider.destroy?.();
+
+    const events = batchEvents().filter((e) => e["event"] === "Purchase Completed");
+    expect(events).toHaveLength(1);
+
+    const requestCountAfterDestroy = received.length;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(received.length).toBe(requestCountAfterDestroy);
   });
 });
