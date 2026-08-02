@@ -55,3 +55,23 @@ are the record, this is just a trail of what happened when.
   Shipped `examples/core/` (canonical event shape + provider-switch demo).
   Per the new policy (see "Policy changes" in `plan/ROADMAP.md`), this
   phase's issue files stay in `plan/phase-6-canonical/` permanently.
+- Phase 7 (multi-provider + routing): `CreateAnalyticsOptions.provider`
+  accepts `AnalyticsProvider | ProviderEntry | (AnalyticsProvider |
+  ProviderEntry)[]` (`ProviderEntry = { provider, include?, exclude?,
+  predicate?, sampling?, priority? }`); a single bare provider keeps exact
+  Phase 6 passthrough behavior, an array opts into fan-out. Routing
+  (`include`/`exclude`/exact-or-glob-string-or-`RegExp` matchers,
+  `predicate(event)`, deterministic `sampling` hashed on `anonymousId`)
+  gates only `track`/`page`/`screen`; `identify`/`group`/`alias`/`reset`
+  always fan out to every provider unconditionally. `priority` is
+  ordering-only (never exclusive) — fan-out still happens, priority just
+  controls call-initiation order (stable sort, ties by array position).
+  Capability gating (from Phase 6) is now per-provider in a fan-out list.
+  Fan-out error isolation: `track`/`page`/`screen`/`identify`/`group`/
+  `alias`/`reset` swallow-and-warn per-provider rejections via
+  `Promise.allSettled`, never throwing; `flush`/`destroy` also run every
+  provider via `Promise.allSettled` but throw a combined `AggregateError`
+  if any provider rejected (destroy's flush-then-destroy phases both run
+  in full regardless of flush-phase rejections). Shipped
+  `examples/providers/` (multi-provider routing demo). Per policy, this
+  phase's issue files stay in `plan/phase-7-multi-provider/` permanently.
