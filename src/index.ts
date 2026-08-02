@@ -1,9 +1,11 @@
+import type { Middleware } from "./middleware";
 import { noopProvider, type AnalyticsProvider, type ProviderCapabilities } from "./providers";
 import { normalizeProviders, shouldRouteToProvider, sortByPriority } from "./routing";
 import type { ProviderEntry } from "./routing";
 import { EventValidationError } from "./schema";
 import type { CanonicalEvent, EventMap, SchemaMap, TrackArgs, TrackOptions } from "./schema";
 
+export type { Middleware } from "./middleware";
 export { noopProvider } from "./providers";
 export type { AnalyticsProvider, ProviderCapabilities } from "./providers";
 export type { ProviderEntry, RouteMatcher } from "./routing";
@@ -67,6 +69,11 @@ export interface Analytics<Events extends EventMap = EventMap> {
   reset(): void | Promise<void>;
   flush(): Promise<void>;
   destroy(): Promise<void>;
+  // Registers a middleware onto this instance's chain. Accumulates in
+  // registration order -- no dedup by `Middleware.name`. Purely additive as
+  // of this issue: registered middlewares are not yet consumed by
+  // `track`/`page`/`screen` (issue 002 wires that in).
+  use(middleware: Middleware): void;
   // `enable()`/`disable()` (privacy/consent gating) are intentionally not
   // part of this interface yet -- deferred to the Privacy/consent phase.
 }
@@ -96,6 +103,12 @@ export function createAnalytics<Events extends EventMap = EventMap>(
   // A single `Set<string>` closure variable naturally provides "per-provider"
   // dedup already, since the key includes `provider.name`.
   const warnedCapabilities = new Set<string>();
+
+  // Registered middlewares, in registration order. Populated by `use()`
+  // below, but not yet consumed anywhere -- wiring this into
+  // `track`/`page`/`screen` via `runBeforeChain`/`runAfterChain` is issue
+  // 002's entire scope.
+  const middlewares: Middleware[] = [];
 
   // Shared gate for the five capability-dependent verbs: returns `true` when
   // `entry.provider` both declares the capability and implements the
@@ -381,6 +394,9 @@ export function createAnalytics<Events extends EventMap = EventMap>(
       if (reasons.length > 0) {
         throw new AggregateError(reasons, `typetrack: ${reasons.length} provider(s) failed during destroy()`);
       }
+    },
+    use(middleware) {
+      middlewares.push(middleware);
     },
   };
 }
