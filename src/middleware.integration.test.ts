@@ -1,9 +1,12 @@
-// Integration test for `Analytics.use()` (Phase 8 issue 001): constructs a
-// real `createAnalytics()` instance against a real `AnalyticsProvider` stub,
-// registers a handful of realistic-looking middleware objects, and asserts
-// that registering them doesn't throw and doesn't change `track()`'s
-// behavior at all -- the chain isn't wired into any verb yet (issue 002's
-// scope). This is a regression guard, not a middleware-pipeline test.
+// Integration test for `Analytics.use()` (Phase 8 issue 001, updated by
+// issue 002): constructs a real `createAnalytics()` instance against a real
+// `AnalyticsProvider` stub, registers a handful of realistic-looking
+// middleware objects, and asserts that registering them doesn't throw. As
+// of issue 002, the chain is wired into `track()`/`page()`/`screen()`, so
+// `propertyAppender.before()`'s mutation is now expected to reach the
+// provider -- see `src/index.middleware.test.ts`/
+// `src/index.middleware.integration.test.ts` for the full pipeline-wiring
+// test suite; this file remains focused on `use()` registration itself.
 import { describe, expect, it } from "bun:test";
 import { createAnalytics } from "./index";
 import type { Middleware } from "./middleware";
@@ -26,7 +29,7 @@ class RecordingProvider implements AnalyticsProvider {
 }
 
 describe("Analytics.use() integration", () => {
-  it("accumulates multiple registrations without throwing, and does not affect track() behavior yet", async () => {
+  it("accumulates multiple registrations without throwing; track() now runs through the registered chain", async () => {
     const provider = new RecordingProvider();
     const analytics = createAnalytics<AppEvents>({ provider });
 
@@ -54,12 +57,11 @@ describe("Analytics.use() integration", () => {
 
     await analytics.track("signup_completed", { plan: "pro" });
 
-    // The chain isn't wired in yet -- the recorded event must be exactly
-    // what pre-Phase-8 `track()` would have produced, with no `appended`
-    // property from `propertyAppender.before()`.
+    // The chain is now wired in (issue 002) -- the recorded event reflects
+    // propertyAppender.before()'s mutation.
     expect(provider.calls).toHaveLength(1);
     expect(provider.calls[0]!.name).toBe("signup_completed");
-    expect(provider.calls[0]!.properties).toEqual({ plan: "pro" });
+    expect(provider.calls[0]!.properties).toEqual({ plan: "pro", appended: true });
   });
 
   it("use() is available on the Analytics interface returned by createAnalytics() with no options", () => {

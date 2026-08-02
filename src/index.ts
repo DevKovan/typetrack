@@ -1,4 +1,4 @@
-import type { Middleware } from "./middleware";
+import { runAfterChain, runBeforeChain, type Middleware } from "./middleware";
 import { noopProvider, type AnalyticsProvider, type ProviderCapabilities } from "./providers";
 import { normalizeProviders, shouldRouteToProvider, sortByPriority } from "./routing";
 import type { ProviderEntry } from "./routing";
@@ -105,9 +105,9 @@ export function createAnalytics<Events extends EventMap = EventMap>(
   const warnedCapabilities = new Set<string>();
 
   // Registered middlewares, in registration order. Populated by `use()`
-  // below, but not yet consumed anywhere -- wiring this into
-  // `track`/`page`/`screen` via `runBeforeChain`/`runAfterChain` is issue
-  // 002's entire scope.
+  // below and consumed by `track`/`page`/`screen` via `runThroughMiddleware`
+  // (this issue). `identify`/`group`/`alias`/`reset`/`flush`/`destroy` never
+  // read this array -- no canonical event exists for those verbs.
   const middlewares: Middleware[] = [];
 
   // Shared gate for the five capability-dependent verbs: returns `true` when
@@ -201,6 +201,46 @@ export function createAnalytics<Events extends EventMap = EventMap>(
     };
   }
 
+  // Runs `track`/`page`/`screen`'s canonical event through the registered
+  // middleware chain, then `dispatch` (single-provider fast path or
+  // Phase 7's routing/fan-out), then `after()`, in the exact order locked by
+  // this issue: before-chain -> (drop check) -> dispatch -> after-chain.
+  // `dispatch` receives the post-`before`-chain event, so routing/capability
+  // gating/provider calls all see the (possibly transformed) event, never
+  // the pre-middleware one.
+  //
+  // Zero-middleware fast path: `runBeforeChain`/`runAfterChain` are skipped
+  // entirely (not just no-op'd) so that `dispatch`'s own return value --
+  // `void` for the single-provider fast path calling a synchronous
+  // provider, or a `Promise<void>` otherwise -- passes through completely
+  // unwrapped, keeping zero-middleware behavior byte-for-byte identical to
+  // the end of Phase 7 (no extra microtask tick, no forced `Promise` return
+  // where none existed before).
+  //
+  // A `before()` that drops the event (returns `null`/`undefined`) causes
+  // this to resolve with no call to `dispatch` and no call to `after()` --
+  // the verb resolves normally, exactly as if the app itself never called
+  // it for that invocation.
+  //
+  // Errors thrown by `before()`/`after()` (or provider rejections surfaced
+  // by `dispatch`) are intentionally left to propagate as-is here -- wiring
+  // `onError` around them is issue 003's scope, not this issue's.
+  function runThroughMiddleware(
+    canonicalEvent: CanonicalEvent,
+    dispatch: (event: CanonicalEvent) => void | Promise<void>,
+  ): void | Promise<void> {
+    if (middlewares.length === 0) {
+      return dispatch(canonicalEvent);
+    }
+
+    return (async () => {
+      const before = await runBeforeChain(middlewares, canonicalEvent);
+      if (before.dropped) return;
+      await dispatch(before.event);
+      await runAfterChain(middlewares, before.event);
+    })();
+  }
+
   return {
     track(event, ...args) {
       const [rawPayload, trackOptions] = args as [unknown, TrackOptions | undefined];
@@ -247,20 +287,24 @@ export function createAnalytics<Events extends EventMap = EventMap>(
         metadata: trackOptions?.metadata,
       };
 
-      // `track()` is never capability-gated -- `AnalyticsProvider.track` is
-      // a required (non-optional) field, always called directly.
-      if (!normalized.isMulti) {
-        return normalized.entries[0]!.provider.track(canonicalEvent);
-      }
+      return runThroughMiddleware(canonicalEvent, (evt) => {
+        // `track()` is never capability-gated -- `AnalyticsProvider.track`
+        // is a required (non-optional) field, always called directly.
+        if (!normalized.isMulti) {
+          return normalized.entries[0]!.provider.track(evt);
+        }
 
-      const sorted = sortByPriority(normalized.entries);
-      return dispatchToProviders(sorted, "track", (entry) => {
-        // Routing is evaluated before anything else: an entry excluded by
-        // routing is never a candidate for the call at all, so it never
-        // triggers a capability warning either (moot here since `track`
-        // isn't capability-gated, but keeps the same order as page/screen).
-        if (!shouldRouteToProvider(entry, canonicalEvent)) return;
-        return entry.provider.track(canonicalEvent);
+        const sorted = sortByPriority(normalized.entries);
+        return dispatchToProviders(sorted, "track", (entry) => {
+          // Routing is evaluated before anything else: an entry excluded by
+          // routing is never a candidate for the call at all, so it never
+          // triggers a capability warning either (moot here since `track`
+          // isn't capability-gated, but keeps the same order as page/screen).
+          // `evt` is the post-`before`-chain event -- routing sees the
+          // (possibly transformed) event, never the pre-middleware one.
+          if (!shouldRouteToProvider(entry, evt)) return;
+          return entry.provider.track(evt);
+        });
       });
     },
     identify(newUserId, traits) {
@@ -287,19 +331,21 @@ export function createAnalytics<Events extends EventMap = EventMap>(
       });
     },
     page(name, props, pageOptions) {
-      if (!normalized.isMulti) {
-        const entry = normalized.entries[0]!;
-        if (!isCapabilitySupported(entry, "page")) return;
-        const canonicalEvent = buildEvent(name, props, pageOptions);
-        return entry.provider.page?.(canonicalEvent);
-      }
-
       const canonicalEvent = buildEvent(name, props, pageOptions);
-      const sorted = sortByPriority(normalized.entries);
-      return dispatchToProviders(sorted, "page", (entry) => {
-        if (!shouldRouteToProvider(entry, canonicalEvent)) return;
-        if (!isCapabilitySupported(entry, "page")) return;
-        return entry.provider.page?.(canonicalEvent);
+
+      return runThroughMiddleware(canonicalEvent, (evt) => {
+        if (!normalized.isMulti) {
+          const entry = normalized.entries[0]!;
+          if (!isCapabilitySupported(entry, "page")) return;
+          return entry.provider.page?.(evt);
+        }
+
+        const sorted = sortByPriority(normalized.entries);
+        return dispatchToProviders(sorted, "page", (entry) => {
+          if (!shouldRouteToProvider(entry, evt)) return;
+          if (!isCapabilitySupported(entry, "page")) return;
+          return entry.provider.page?.(evt);
+        });
       });
     },
     group(groupId, traits) {
@@ -328,19 +374,21 @@ export function createAnalytics<Events extends EventMap = EventMap>(
       });
     },
     screen(name, props, screenOptions) {
-      if (!normalized.isMulti) {
-        const entry = normalized.entries[0]!;
-        if (!isCapabilitySupported(entry, "screen")) return;
-        const canonicalEvent = buildEvent(name, props, screenOptions);
-        return entry.provider.screen?.(canonicalEvent);
-      }
-
       const canonicalEvent = buildEvent(name, props, screenOptions);
-      const sorted = sortByPriority(normalized.entries);
-      return dispatchToProviders(sorted, "screen", (entry) => {
-        if (!shouldRouteToProvider(entry, canonicalEvent)) return;
-        if (!isCapabilitySupported(entry, "screen")) return;
-        return entry.provider.screen?.(canonicalEvent);
+
+      return runThroughMiddleware(canonicalEvent, (evt) => {
+        if (!normalized.isMulti) {
+          const entry = normalized.entries[0]!;
+          if (!isCapabilitySupported(entry, "screen")) return;
+          return entry.provider.screen?.(evt);
+        }
+
+        const sorted = sortByPriority(normalized.entries);
+        return dispatchToProviders(sorted, "screen", (entry) => {
+          if (!shouldRouteToProvider(entry, evt)) return;
+          if (!isCapabilitySupported(entry, "screen")) return;
+          return entry.provider.screen?.(evt);
+        });
       });
     },
     reset() {
