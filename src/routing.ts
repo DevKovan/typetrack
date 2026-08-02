@@ -113,3 +113,46 @@ export function hashToUnitInterval(input: string): number {
 export function isSampledIn(anonymousId: string, samplingRate: number): boolean {
   return hashToUnitInterval(anonymousId) < samplingRate;
 }
+
+// Combines include/exclude/predicate/sampling into one pass/fail decision
+// for whether `entry.provider` should receive `event`. `include` and
+// `exclude` are mutually exclusive by construction (enforced by
+// `normalizeProviders`), so no redundant runtime check is done here. All
+// applicable checks must pass (logical AND); short-circuits on the first
+// failing check, which is unobservable since no check has side effects.
+export function shouldRouteToProvider(entry: ProviderEntry, event: CanonicalEvent): boolean {
+  if (entry.include !== undefined) {
+    if (!entry.include.some((matcher) => matchRoute(matcher, event.name))) {
+      return false;
+    }
+  }
+
+  if (entry.exclude !== undefined) {
+    if (entry.exclude.some((matcher) => matchRoute(matcher, event.name))) {
+      return false;
+    }
+  }
+
+  if (entry.predicate !== undefined) {
+    if (!entry.predicate(event)) {
+      return false;
+    }
+  }
+
+  if (entry.sampling !== undefined) {
+    if (!isSampledIn(event.anonymousId, entry.sampling)) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+// Stable sort of `entries` by `priority` ascending (default 0), ties broken
+// by original array position. Returns a new array; does not mutate `entries`.
+export function sortByPriority(entries: ProviderEntry[]): ProviderEntry[] {
+  return entries
+    .map((entry, index) => ({ entry, priority: entry.priority ?? 0, index }))
+    .sort((a, b) => a.priority - b.priority || a.index - b.index)
+    .map(({ entry }) => entry);
+}
