@@ -1,0 +1,52 @@
+This is the literal console output produced by `bun run index.ts`.
+
+The `anonymousId`, `sessionId`, and `timestamp` values below are illustrative
+-- they are freshly generated (anonymousId/sessionId via `crypto.randomUUID()`)
+or read from the clock (timestamp via `Date.now()`) on every run, so your
+actual values WILL DIFFER. Everything else -- field names, field order, which
+fields are present vs. omitted, and all other values -- is exactly
+reproducible.
+
+track ->
+{
+  "name": "User Signed Up",
+  "properties": {
+    "plan": "pro"
+  },
+  "timestamp": 1785665703474,
+  "anonymousId": "09f5a82b-d4d7-4a21-a272-9f8897e88a29",
+  "sessionId": "ac4f5f5a-7f24-47b1-81e9-6b4a83502b63",
+  "context": {
+    "locale": "en-US"
+  },
+  "metadata": {
+    "source": "web"
+  }
+}
+identify -> userId=user_42 anonymousId=09f5a82b-d4d7-4a21-a272-9f8897e88a29 traits={"email":"ada@example.com","plan":"pro"}
+group -> groupId=acme-inc identity={"userId":"user_42","anonymousId":"09f5a82b-d4d7-4a21-a272-9f8897e88a29"} traits={"name":"Acme Inc","tier":"enterprise"}
+track ->
+{
+  "name": "Checkout Started",
+  "properties": {
+    "cartValue": 129.99,
+    "itemCount": 3
+  },
+  "timestamp": 1785665703475,
+  "anonymousId": "09f5a82b-d4d7-4a21-a272-9f8897e88a29",
+  "userId": "user_42",
+  "sessionId": "ac4f5f5a-7f24-47b1-81e9-6b4a83502b63"
+}
+
+Notes on what's NOT printed above, and why:
+- The first event has no "userId" key at all: `JSON.stringify` omits object
+  keys whose value is `undefined`, and `identify()` has not been called yet
+  when this event is built, so `userId` is `undefined` at that point.
+- The second event has no "context"/"metadata" keys, for the same reason:
+  the second `track()` call passes no `TrackOptions`, so both are
+  `undefined` and dropped by `JSON.stringify`.
+- Both events share the same `anonymousId` and `sessionId` -- this process's
+  identity/session state (generated once when `createAnalytics()` is called)
+  never changes across calls unless `reset()` is called.
+- The second event's `userId` is `"user_42"` -- the exact value passed to
+  `identify()` between the two `track()` calls.

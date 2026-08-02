@@ -6,7 +6,8 @@
   "type": "module",
   "private": false,
   "workspaces": [
-    "packages/*"
+    "packages/*",
+    "examples/core/*"
   ],
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",

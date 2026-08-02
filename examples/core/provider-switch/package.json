@@ -1,0 +1,16 @@
+{
+  "name": "example-core-provider-switch",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start:noop": "bun run run-with-noop.ts",
+    "start:ga4": "bun run run-with-ga4.ts",
+    "start:ga4-stub": "bun run run-with-ga4-local-stub.ts",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "typetrack": "file:../../..",
+    "@typetrack/provider-ga4": "workspace:*"
+  }
+}

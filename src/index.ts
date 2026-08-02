@@ -2,6 +2,7 @@ import { noopProvider, type AnalyticsProvider, type ProviderCapabilities } from 
 import { EventValidationError } from "./schema";
 import type { CanonicalEvent, EventMap, SchemaMap, TrackArgs, TrackOptions } from "./schema";
 
+export { noopProvider } from "./providers";
 export type { AnalyticsProvider, ProviderCapabilities } from "./providers";
 export type { CanonicalEvent, EventMap, InferEvents, SchemaMap, TrackOptions } from "./schema";
 export { EventValidationError } from "./schema";
