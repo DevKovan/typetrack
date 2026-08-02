@@ -133,6 +133,31 @@ export function createAnalytics<Events extends EventMap = EventMap>(
     return false;
   }
 
+  // Notifies every middleware in `targets` (in registration order) whose
+  // `onError` is defined, for a single failure (`error`/`event`/`ctx`).
+  // Issue 003's swallow policy: `onError` handlers never propagate -- if
+  // calling one throws/rejects, it's caught, `console.warn`'d, and the loop
+  // continues to the next middleware's `onError`, so one broken handler
+  // never prevents another middleware from being notified of the same
+  // failure (and never crashes `track()`/`page()`/`screen()`).
+  async function notifyOnError(
+    targets: Middleware[],
+    error: unknown,
+    event: CanonicalEvent,
+    ctx: { source: "middleware" | "provider"; providerName?: string },
+  ): Promise<void> {
+    for (const middleware of targets) {
+      if (!middleware.onError) continue;
+      try {
+        await middleware.onError(error, event, ctx);
+      } catch (onErrorFailure) {
+        console.warn(
+          `typetrack: middleware "${middleware.name}"'s onError() handler itself threw -- ${onErrorFailure}`,
+        );
+      }
+    }
+  }
+
   // Fans a call out to every entry in `entries`, invoking `invoke(entry)`
   // for each (an `invoke` that decides to skip an entry -- routing/
   // capability gating -- simply returns without calling the provider).
@@ -141,10 +166,20 @@ export function createAnalytics<Events extends EventMap = EventMap>(
   // via `console.warn`, mentioning the provider's name, the verb, and the
   // rejection reason -- every failure warns, this is never deduped the way
   // capability warnings are. `dispatchToProviders` itself never rejects.
+  //
+  // `onProviderError` (issue 003, optional): when supplied, called once per
+  // rejected entry, after that entry's `console.warn` has already fired
+  // (chosen order -- either is acceptable per the issue, this is the
+  // implementation's choice), so `onError` fan-out is additive to, never a
+  // replacement for, the existing warning. Only `track`/`page`/`screen`'s
+  // call sites pass this (they're the only verbs with a `CanonicalEvent`
+  // and a middleware chain); `identify`/`group`/`alias`/`reset` never do, so
+  // their behavior is entirely unchanged by this issue.
   async function dispatchToProviders(
     entries: ProviderEntry[],
     verb: string,
     invoke: (entry: ProviderEntry) => void | Promise<void>,
+    onProviderError?: (entry: ProviderEntry, error: unknown) => void | Promise<void>,
   ): Promise<void> {
     const results = await Promise.allSettled(
       entries.map(async (entry) => {
@@ -157,7 +192,43 @@ export function createAnalytics<Events extends EventMap = EventMap>(
         console.warn(
           `typetrack: provider "${entries[i]!.provider.name}" failed during "${verb}()" -- ${result.reason}`,
         );
+        if (onProviderError) {
+          await onProviderError(entries[i]!, result.reason);
+        }
       }
+    }
+  }
+
+  // Wraps a single-provider (non-multi) fast path's direct
+  // `entry.provider.track/page/screen(event)` call (issue 003): detects a
+  // synchronous throw or a rejected returned Promise, and on failure,
+  // reports it exactly as `dispatchToProviders` does for the multi-provider
+  // case -- `console.warn` (mentioning provider name, verb, rejection
+  // reason), then `onError` fan-out to every registered middleware with
+  // `source: "provider"` -- then swallows it (the verb resolves normally).
+  // On success, `call()`'s own return value (sync `void`, or a `Promise`)
+  // passes through untouched -- no extra microtask tick, no forced `Promise`
+  // wrapping, preserving the fast path's zero-overhead contract for the
+  // non-failing case.
+  function callSingleProvider(
+    entry: ProviderEntry,
+    verb: string,
+    event: CanonicalEvent,
+    call: () => void | Promise<void>,
+  ): void | Promise<void> {
+    function handleFailure(error: unknown): Promise<void> {
+      console.warn(`typetrack: provider "${entry.provider.name}" failed during "${verb}()" -- ${error}`);
+      return notifyOnError(middlewares, error, event, { source: "provider", providerName: entry.provider.name });
+    }
+
+    try {
+      const result = call();
+      if (result && typeof (result as Promise<void>).then === "function") {
+        return (result as Promise<void>).catch(handleFailure);
+      }
+      return result;
+    } catch (error) {
+      return handleFailure(error);
     }
   }
 
@@ -222,9 +293,17 @@ export function createAnalytics<Events extends EventMap = EventMap>(
   // the verb resolves normally, exactly as if the app itself never called
   // it for that invocation.
   //
-  // Errors thrown by `before()`/`after()` (or provider rejections surfaced
-  // by `dispatch`) are intentionally left to propagate as-is here -- wiring
-  // `onError` around them is issue 003's scope, not this issue's.
+  // Errors thrown by `before()`/`after()` (issue 003): reported via
+  // `onError` instead of propagating. A `before()` throw is fanned out to
+  // the throwing middleware and every middleware before it in registration
+  // order (`before.ranMiddlewares` -- the chain never reaches later
+  // middlewares, mirroring a drop's short-circuit), then treated like a
+  // drop (no `dispatch`, no `after`). An `after()` throw is fanned out
+  // identically (`after.ranMiddlewares`), but `dispatch` has already run by
+  // that point -- the event was genuinely delivered, this isn't a drop.
+  // Provider-dispatch rejections are handled inside `dispatch` itself (see
+  // `dispatchToProviders`'s `onProviderError` / `callSingleProvider`) --
+  // this function never needs to know about those.
   function runThroughMiddleware(
     canonicalEvent: CanonicalEvent,
     dispatch: (event: CanonicalEvent) => void | Promise<void>,
@@ -235,9 +314,18 @@ export function createAnalytics<Events extends EventMap = EventMap>(
 
     return (async () => {
       const before = await runBeforeChain(middlewares, canonicalEvent);
+      if (before.threw) {
+        await notifyOnError(before.ranMiddlewares, before.error, before.event, { source: "middleware" });
+        return;
+      }
       if (before.dropped) return;
+
       await dispatch(before.event);
-      await runAfterChain(middlewares, before.event);
+
+      const after = await runAfterChain(middlewares, before.event);
+      if (after.threw) {
+        await notifyOnError(after.ranMiddlewares, after.error, before.event, { source: "middleware" });
+      }
     })();
   }
 
@@ -291,20 +379,27 @@ export function createAnalytics<Events extends EventMap = EventMap>(
         // `track()` is never capability-gated -- `AnalyticsProvider.track`
         // is a required (non-optional) field, always called directly.
         if (!normalized.isMulti) {
-          return normalized.entries[0]!.provider.track(evt);
+          const entry = normalized.entries[0]!;
+          return callSingleProvider(entry, "track", evt, () => entry.provider.track(evt));
         }
 
         const sorted = sortByPriority(normalized.entries);
-        return dispatchToProviders(sorted, "track", (entry) => {
-          // Routing is evaluated before anything else: an entry excluded by
-          // routing is never a candidate for the call at all, so it never
-          // triggers a capability warning either (moot here since `track`
-          // isn't capability-gated, but keeps the same order as page/screen).
-          // `evt` is the post-`before`-chain event -- routing sees the
-          // (possibly transformed) event, never the pre-middleware one.
-          if (!shouldRouteToProvider(entry, evt)) return;
-          return entry.provider.track(evt);
-        });
+        return dispatchToProviders(
+          sorted,
+          "track",
+          (entry) => {
+            // Routing is evaluated before anything else: an entry excluded by
+            // routing is never a candidate for the call at all, so it never
+            // triggers a capability warning either (moot here since `track`
+            // isn't capability-gated, but keeps the same order as page/screen).
+            // `evt` is the post-`before`-chain event -- routing sees the
+            // (possibly transformed) event, never the pre-middleware one.
+            if (!shouldRouteToProvider(entry, evt)) return;
+            return entry.provider.track(evt);
+          },
+          (entry, error) =>
+            notifyOnError(middlewares, error, evt, { source: "provider", providerName: entry.provider.name }),
+        );
       });
     },
     identify(newUserId, traits) {
@@ -337,15 +432,21 @@ export function createAnalytics<Events extends EventMap = EventMap>(
         if (!normalized.isMulti) {
           const entry = normalized.entries[0]!;
           if (!isCapabilitySupported(entry, "page")) return;
-          return entry.provider.page?.(evt);
+          return callSingleProvider(entry, "page", evt, () => entry.provider.page?.(evt));
         }
 
         const sorted = sortByPriority(normalized.entries);
-        return dispatchToProviders(sorted, "page", (entry) => {
-          if (!shouldRouteToProvider(entry, evt)) return;
-          if (!isCapabilitySupported(entry, "page")) return;
-          return entry.provider.page?.(evt);
-        });
+        return dispatchToProviders(
+          sorted,
+          "page",
+          (entry) => {
+            if (!shouldRouteToProvider(entry, evt)) return;
+            if (!isCapabilitySupported(entry, "page")) return;
+            return entry.provider.page?.(evt);
+          },
+          (entry, error) =>
+            notifyOnError(middlewares, error, evt, { source: "provider", providerName: entry.provider.name }),
+        );
       });
     },
     group(groupId, traits) {
@@ -380,15 +481,21 @@ export function createAnalytics<Events extends EventMap = EventMap>(
         if (!normalized.isMulti) {
           const entry = normalized.entries[0]!;
           if (!isCapabilitySupported(entry, "screen")) return;
-          return entry.provider.screen?.(evt);
+          return callSingleProvider(entry, "screen", evt, () => entry.provider.screen?.(evt));
         }
 
         const sorted = sortByPriority(normalized.entries);
-        return dispatchToProviders(sorted, "screen", (entry) => {
-          if (!shouldRouteToProvider(entry, evt)) return;
-          if (!isCapabilitySupported(entry, "screen")) return;
-          return entry.provider.screen?.(evt);
-        });
+        return dispatchToProviders(
+          sorted,
+          "screen",
+          (entry) => {
+            if (!shouldRouteToProvider(entry, evt)) return;
+            if (!isCapabilitySupported(entry, "screen")) return;
+            return entry.provider.screen?.(evt);
+          },
+          (entry, error) =>
+            notifyOnError(middlewares, error, evt, { source: "provider", providerName: entry.provider.name }),
+        );
       });
     },
     reset() {

@@ -3,8 +3,12 @@
 // `createAnalytics()`'s `track()`/`page()`/`screen()`. Chain-logic-in-
 // isolation tests live in `src/middleware.test.ts`; this file only tests
 // that `src/index.ts` invokes that chain at the right place, in the right
-// order, relative to routing/dispatch. `onError`/thrown-middleware-error
-// handling is out of scope here (issue 003).
+// order, relative to routing/dispatch. Issue 003 extends this file with
+// `onError` fan-out coverage (before()/after() throws, provider-dispatch
+// rejections, broken `onError` handlers, and the before()-drop regression
+// check) -- see the "onError wiring" describe block below. A full,
+// hand-computed-outcome integration test lives in
+// `src/index.middleware.error.integration.test.ts`.
 import { afterEach, describe, expect, it, mock } from "bun:test";
 import { createAnalytics } from "./index";
 import type { Middleware } from "./middleware";
@@ -19,7 +23,10 @@ afterEach(() => {
 });
 
 function stubConsoleWarn() {
-  const warn = mock(() => {});
+  // Variadic signature (issue 003) so callers can index into
+  // `warn.mock.calls[i]![0]` to inspect the warned message -- matches the
+  // pattern already established in `index.multiProvider.test.ts`.
+  const warn = mock((..._args: unknown[]) => {});
   console.warn = warn as unknown as typeof console.warn;
   return warn;
 }
@@ -350,5 +357,248 @@ describe("createAnalytics() middleware wiring -- zero-middleware regression", ()
     expect(a.track).toHaveBeenCalledTimes(1);
     expect(b.track).toHaveBeenCalledTimes(1);
     expect(lastCallEvent(a.track)).toEqual(lastCallEvent(b.track));
+  });
+});
+
+// Issue 003: `onError` fan-out wiring.
+type OnErrorCall = { error: unknown; event: CanonicalEvent; ctx: { source: "middleware" | "provider"; providerName?: string } };
+
+function recordingErrorMiddleware(name: string, log: OnErrorCall[]): Middleware {
+  return {
+    name,
+    onError(error, event, ctx) {
+      log.push({ error, event, ctx });
+    },
+  };
+}
+
+describe("createAnalytics() middleware wiring -- onError fan-out", () => {
+  it("before()-throw: onError fires on the thrower and everyone before it (registration order); later middlewares never receive it; provider is never dispatched; track() resolves normally", async () => {
+    const provider = makeProvider("solo");
+    const boom = new Error("before boom");
+    const logA: OnErrorCall[] = [];
+    const logB: OnErrorCall[] = [];
+    const logC: OnErrorCall[] = [];
+    const first: Middleware = { ...recordingErrorMiddleware("first", logA), before: (event) => event };
+    const thrower: Middleware = {
+      ...recordingErrorMiddleware("thrower", logB),
+      before: () => {
+        throw boom;
+      },
+    };
+    const never: Middleware = { ...recordingErrorMiddleware("never", logC), before: (event) => event };
+
+    const analytics = createAnalytics({ provider });
+    analytics.use(first);
+    analytics.use(thrower);
+    analytics.use(never);
+
+    await expect(analytics.track("event")).resolves.toBeUndefined();
+
+    expect(provider.track).not.toHaveBeenCalled();
+    expect(logA).toHaveLength(1);
+    expect(logA[0]!.error).toBe(boom);
+    expect(logA[0]!.ctx).toEqual({ source: "middleware" });
+    expect(logB).toHaveLength(1);
+    expect(logB[0]!.error).toBe(boom);
+    expect(logB[0]!.ctx).toEqual({ source: "middleware" });
+    expect(logC).toHaveLength(0);
+  });
+
+  it("before()-throw via a rejected Promise is treated identically to a synchronous throw", async () => {
+    const provider = makeProvider("solo");
+    const boom = new Error("async before boom");
+    const log: OnErrorCall[] = [];
+    const thrower: Middleware = { ...recordingErrorMiddleware("thrower", log), before: () => Promise.reject(boom) };
+    const analytics = createAnalytics({ provider });
+    analytics.use(thrower);
+
+    await analytics.track("event");
+
+    expect(provider.track).not.toHaveBeenCalled();
+    expect(log).toHaveLength(1);
+    expect(log[0]!.error).toBe(boom);
+  });
+
+  it("after()-throw: onError fires on the thrower and everyone before it; provider was still dispatched (dispatch already happened); track() resolves normally", async () => {
+    const provider = makeProvider("solo");
+    const boom = new Error("after boom");
+    const logA: OnErrorCall[] = [];
+    const logB: OnErrorCall[] = [];
+    const logC: OnErrorCall[] = [];
+    let thirdAfterRan = false;
+    const first: Middleware = { ...recordingErrorMiddleware("first", logA), after: () => {} };
+    const thrower: Middleware = {
+      ...recordingErrorMiddleware("thrower", logB),
+      after: () => {
+        throw boom;
+      },
+    };
+    const third: Middleware = {
+      ...recordingErrorMiddleware("third", logC),
+      after: () => void (thirdAfterRan = true),
+    };
+
+    const analytics = createAnalytics({ provider });
+    analytics.use(first);
+    analytics.use(thrower);
+    analytics.use(third);
+
+    await expect(analytics.track("event")).resolves.toBeUndefined();
+
+    expect(provider.track).toHaveBeenCalledTimes(1);
+    expect(thirdAfterRan).toBe(false);
+    expect(logA).toHaveLength(1);
+    expect(logA[0]!.error).toBe(boom);
+    expect(logA[0]!.ctx).toEqual({ source: "middleware" });
+    expect(logB).toHaveLength(1);
+    expect(logB[0]!.error).toBe(boom);
+    expect(logC).toHaveLength(0);
+  });
+
+  it("single-provider dispatch failure: every registered middleware's onError fires once with source: provider and the correct providerName; console.warn still fires; track() resolves normally", async () => {
+    const warn = stubConsoleWarn();
+    const boom = new Error("provider boom");
+    const provider = makeProvider("flaky", { track: mock(() => Promise.reject(boom)) });
+    const logA: OnErrorCall[] = [];
+    const logB: OnErrorCall[] = [];
+    const analytics = createAnalytics({ provider });
+    analytics.use(recordingErrorMiddleware("a", logA));
+    analytics.use(recordingErrorMiddleware("b", logB));
+
+    await expect(analytics.track("event")).resolves.toBeUndefined();
+
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0]![0]).toContain("flaky");
+    for (const log of [logA, logB]) {
+      expect(log).toHaveLength(1);
+      expect(log[0]!.error).toBe(boom);
+      expect(log[0]!.ctx).toEqual({ source: "provider", providerName: "flaky" });
+    }
+  });
+
+  it("single-provider dispatch failure via a synchronous throw is handled identically to a rejected Promise", async () => {
+    stubConsoleWarn();
+    const boom = new Error("sync provider boom");
+    const provider = makeProvider("sync-flaky", {
+      track: mock(() => {
+        throw boom;
+      }),
+    });
+    const log: OnErrorCall[] = [];
+    const analytics = createAnalytics({ provider });
+    analytics.use(recordingErrorMiddleware("a", log));
+
+    await analytics.track("event");
+
+    expect(log).toHaveLength(1);
+    expect(log[0]!.error).toBe(boom);
+    expect(log[0]!.ctx).toEqual({ source: "provider", providerName: "sync-flaky" });
+  });
+
+  it("multi-provider partial failure: onError fires once per failing provider per middleware with the correct providerName; the succeeding provider never triggers onError; console.warn fires once per failure", async () => {
+    const warn = stubConsoleWarn();
+    const boomA = new Error("a boom");
+    const boomC = new Error("c boom");
+    const a = makeProvider("a", { track: mock(() => Promise.reject(boomA)) });
+    const b = makeProvider("b");
+    const c = makeProvider("c", {
+      track: mock(() => {
+        throw boomC;
+      }),
+    });
+    const log: OnErrorCall[] = [];
+    const analytics = createAnalytics({ provider: [a, b, c] });
+    analytics.use(recordingErrorMiddleware("mw", log));
+
+    await analytics.track("event");
+
+    expect(warn).toHaveBeenCalledTimes(2);
+    expect(log).toHaveLength(2);
+    const byProvider = new Map(log.map((entry) => [entry.ctx.providerName, entry]));
+    expect(byProvider.get("a")!.error).toBe(boomA);
+    expect(byProvider.get("a")!.ctx).toEqual({ source: "provider", providerName: "a" });
+    expect(byProvider.get("c")!.error).toBe(boomC);
+    expect(byProvider.get("c")!.ctx).toEqual({ source: "provider", providerName: "c" });
+    expect(byProvider.has("b")).toBe(false);
+  });
+
+  it("a broken onError handler (itself throws) is swallowed and warned, and does not prevent other middlewares' onError from being called for the same failure", async () => {
+    const warn = stubConsoleWarn();
+    const boom = new Error("provider boom");
+    const provider = makeProvider("flaky", { track: mock(() => Promise.reject(boom)) });
+    const broken: Middleware = {
+      name: "broken",
+      onError: () => {
+        throw new Error("onError itself is broken");
+      },
+    };
+    const log: OnErrorCall[] = [];
+    const healthy = recordingErrorMiddleware("healthy", log);
+
+    const analytics = createAnalytics({ provider });
+    analytics.use(broken);
+    analytics.use(healthy);
+
+    await expect(analytics.track("event")).resolves.toBeUndefined();
+
+    expect(log).toHaveLength(1);
+    expect(log[0]!.error).toBe(boom);
+    // One warn for the provider rejection itself, one for the broken onError handler.
+    expect(warn).toHaveBeenCalledTimes(2);
+    const warnedMessages = warn.mock.calls.map((call) => call[0]);
+    expect(warnedMessages.some((message) => String(message).includes("broken"))).toBe(true);
+  });
+
+  it("a broken before()-throw onError handler is swallowed and warned, and does not prevent a later middleware's onError from firing", async () => {
+    const warn = stubConsoleWarn();
+    const provider = makeProvider("solo");
+    const boom = new Error("before boom");
+    const broken: Middleware = {
+      name: "broken",
+      before: () => {
+        throw boom;
+      },
+      onError: () => {
+        throw new Error("broken handler");
+      },
+    };
+    const log: OnErrorCall[] = [];
+    const healthy = recordingErrorMiddleware("healthy", log);
+
+    const analytics = createAnalytics({ provider });
+    analytics.use(broken);
+    analytics.use(healthy);
+
+    await expect(analytics.track("event")).resolves.toBeUndefined();
+
+    expect(log).toHaveLength(0); // "healthy" is registered after "broken" -- the before-chain stops at "broken"'s throw, so "healthy" is never reached/notified.
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(String(warn.mock.calls[0]![0])).toContain("broken");
+  });
+
+  it("drop via before() returning undefined: onError is never called (regression check against issue 002's drop contract)", async () => {
+    const provider = makeProvider("solo");
+    const log: OnErrorCall[] = [];
+    const dropper: Middleware = { ...recordingErrorMiddleware("dropper", log), before: () => undefined };
+    const analytics = createAnalytics({ provider });
+    analytics.use(dropper);
+
+    await analytics.track("dropped_event");
+
+    expect(provider.track).not.toHaveBeenCalled();
+    expect(log).toHaveLength(0);
+  });
+
+  it("drop via before() returning null: onError is never called", async () => {
+    const provider = makeProvider("solo");
+    const log: OnErrorCall[] = [];
+    const dropper: Middleware = { ...recordingErrorMiddleware("dropper", log), before: () => null };
+    const analytics = createAnalytics({ provider });
+    analytics.use(dropper);
+
+    await analytics.track("dropped_event");
+
+    expect(log).toHaveLength(0);
   });
 });

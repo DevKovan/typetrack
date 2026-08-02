@@ -1,4 +1,5 @@
-// Unit tests for `runBeforeChain`/`runAfterChain` (Phase 8 issue 001). Pure
+// Unit tests for `runBeforeChain`/`runAfterChain` (Phase 8 issue 001, extended
+// by issue 003 with `threw`/`error`/short-circuit-on-throw semantics). Pure
 // logic, no I/O.
 import { describe, expect, it } from "bun:test";
 import type { Middleware } from "./middleware";
@@ -20,7 +21,7 @@ describe("runBeforeChain", () => {
   it("empty list: returns the same event reference unchanged, dropped: false, ranMiddlewares: []", async () => {
     const event = makeEvent();
     const result = await runBeforeChain([], event);
-    expect(result).toEqual({ event, dropped: false, ranMiddlewares: [] });
+    expect(result).toEqual({ event, dropped: false, ranMiddlewares: [], threw: false });
     expect(result.event).toBe(event);
   });
 
@@ -140,15 +141,66 @@ describe("runBeforeChain", () => {
     expect(order).toEqual(["first", "second"]);
     expect(result.event.properties).toEqual({ first: true, second: true });
   });
+
+  it("a middleware's before() throwing synchronously: threw: true, error captured, ranMiddlewares includes the thrower and everyone before it, not dropped", async () => {
+    const boom = new Error("boom");
+    const first: Middleware = { name: "first", before: (event) => event };
+    const thrower: Middleware = {
+      name: "thrower",
+      before: () => {
+        throw boom;
+      },
+    };
+    const never: Middleware = { name: "never", before: (event) => event };
+
+    const result = await runBeforeChain([first, thrower, never], makeEvent());
+
+    expect(result.threw).toBe(true);
+    expect(result.error).toBe(boom);
+    expect(result.dropped).toBe(false);
+    expect(result.ranMiddlewares).toEqual([first, thrower]);
+  });
+
+  it("a middleware's before() returning a rejected Promise: threw: true, error is the rejection reason", async () => {
+    const boom = new Error("async boom");
+    const thrower: Middleware = { name: "thrower", before: () => Promise.reject(boom) };
+
+    const result = await runBeforeChain([thrower], makeEvent());
+
+    expect(result.threw).toBe(true);
+    expect(result.error).toBe(boom);
+    expect(result.ranMiddlewares).toEqual([thrower]);
+  });
+
+  it("on a before() throw, event is the value fed into the throwing middleware (last successfully-transformed event)", async () => {
+    const first: Middleware = {
+      name: "first",
+      before: (event) => ({ ...event, properties: { ...event.properties, a: 1 } }),
+    };
+    const thrower: Middleware = {
+      name: "thrower",
+      before: () => {
+        throw new Error("boom");
+      },
+    };
+
+    const result = await runBeforeChain([first, thrower], makeEvent());
+
+    expect(result.event.properties).toEqual({ a: 1 });
+  });
 });
 
 describe("runAfterChain", () => {
   it("empty list: resolves without error", async () => {
-    await expect(runAfterChain([], makeEvent())).resolves.toBeUndefined();
+    await expect(runAfterChain([], makeEvent())).resolves.toEqual({ ranMiddlewares: [], threw: false });
   });
 
   it("single middleware with no after -- no-op, does not throw", async () => {
-    await expect(runAfterChain([{ name: "noop" }], makeEvent())).resolves.toBeUndefined();
+    const middleware: Middleware = { name: "noop" };
+    await expect(runAfterChain([middleware], makeEvent())).resolves.toEqual({
+      ranMiddlewares: [middleware],
+      threw: false,
+    });
   });
 
   it("invokes every middleware's after() in registration order, skipping those without one", async () => {
@@ -195,5 +247,38 @@ describe("runAfterChain", () => {
     await runAfterChain([first, second], makeEvent());
 
     expect(order).toEqual(["first", "second"]);
+  });
+
+  it("a middleware's after() throwing synchronously: threw: true, error captured, ranMiddlewares includes the thrower and everyone before it, later after()s never run", async () => {
+    const boom = new Error("after boom");
+    let firstRan = false;
+    let neverRan = false;
+    const first: Middleware = { name: "first", after: () => void (firstRan = true) };
+    const thrower: Middleware = {
+      name: "thrower",
+      after: () => {
+        throw boom;
+      },
+    };
+    const never: Middleware = { name: "never", after: () => void (neverRan = true) };
+
+    const result = await runAfterChain([first, thrower, never], makeEvent());
+
+    expect(result.threw).toBe(true);
+    expect(result.error).toBe(boom);
+    expect(firstRan).toBe(true);
+    expect(neverRan).toBe(false);
+    expect(result.ranMiddlewares).toEqual([first, thrower]);
+  });
+
+  it("a middleware's after() returning a rejected Promise: threw: true, error is the rejection reason", async () => {
+    const boom = new Error("async after boom");
+    const thrower: Middleware = { name: "thrower", after: () => Promise.reject(boom) };
+
+    const result = await runAfterChain([thrower], makeEvent());
+
+    expect(result.threw).toBe(true);
+    expect(result.error).toBe(boom);
+    expect(result.ranMiddlewares).toEqual([thrower]);
   });
 });
