@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import type { CanonicalEvent } from "typetrack";
 import { createGA4Provider } from "./index";
 
 // Integration test -- a real HTTP round-trip against a local Bun.serve()
@@ -37,6 +38,17 @@ afterEach(() => {
   server.stop(true);
 });
 
+function makeEvent(overrides: Partial<CanonicalEvent> = {}): CanonicalEvent {
+  return {
+    name: "Custom Event",
+    properties: {},
+    timestamp: 1_700_000_000_000,
+    anonymousId: "anon-1",
+    sessionId: "session-1",
+    ...overrides,
+  };
+}
+
 describe("createGA4Provider (integration)", () => {
   it("sends track(), identify(), and page() calls to the local /mp/collect endpoint", async () => {
     const provider = createGA4Provider({
@@ -45,9 +57,11 @@ describe("createGA4Provider (integration)", () => {
       apiHost: server.url.toString(),
     });
 
-    provider.identify?.("user_1", { plan: "pro" });
-    await provider.track("signup_completed", { plan: "pro" }, { timestamp: 1_700_000_000_000 });
-    await provider.page?.("Home", { referrer: "google" });
+    provider.identify?.("user_1", { plan: "pro" }, "anon-1");
+    await provider.track(
+      makeEvent({ name: "Purchase Completed", properties: { orderId: "o1", total: 42 }, userId: "user_1" }),
+    );
+    await provider.page?.(makeEvent({ name: "Home", properties: { referrer: "google" }, userId: "user_1" }));
 
     expect(received.length).toBe(2);
 
@@ -55,20 +69,41 @@ describe("createGA4Provider (integration)", () => {
       expect(request.path).toBe("/mp/collect");
       expect(request.query["measurement_id"]).toBe("test");
       expect(request.query["api_secret"]).toBe("test");
-      expect(typeof request.body["client_id"]).toBe("string");
+      expect(request.body["client_id"]).toBe("anon-1");
       expect(request.body["user_id"]).toBe("user_1");
       expect(request.body["user_properties"]).toEqual({ plan: { value: "pro" } });
     }
 
     const trackRequest = received[0]!;
     expect(trackRequest.body["events"]).toEqual([
-      { name: "signup_completed", params: { plan: "pro" } },
+      { name: "purchase", params: { transaction_id: "o1", value: 42 } },
     ]);
     expect(trackRequest.body["timestamp_micros"]).toBe(1_700_000_000_000 * 1000);
 
     const pageRequest = received[1]!;
     expect(pageRequest.body["events"]).toEqual([
       { name: "page_view", params: { page_title: "Home", referrer: "google" } },
+    ]);
+  });
+
+  it("track() with an unmapped-then-mapped event name sequence produces the correct translated events[0]", async () => {
+    const provider = createGA4Provider({
+      measurementId: "test",
+      apiSecret: "test",
+      apiHost: server.url.toString(),
+    });
+
+    await provider.track(makeEvent({ name: "Totally Custom Event", properties: { foo: "bar" } }));
+    await provider.track(makeEvent({ name: "Product Viewed", properties: { productId: "p1", name: "Widget" } }));
+
+    expect(received.length).toBe(2);
+
+    const unmapped = received[0]!;
+    expect(unmapped.body["events"]).toEqual([{ name: "Totally Custom Event", params: { foo: "bar" } }]);
+
+    const mapped = received[1]!;
+    expect(mapped.body["events"]).toEqual([
+      { name: "view_item", params: { item_id: "p1", item_name: "Widget" } },
     ]);
   });
 
@@ -80,9 +115,22 @@ describe("createGA4Provider (integration)", () => {
       apiHost: server.url.toString(),
     });
 
-    await expect(
-      provider.track("signup_completed", {}, { timestamp: 1_700_000_000_000 }),
-    ).rejects.toThrow();
+    await expect(provider.track(makeEvent())).rejects.toThrow();
+
+    expect(received.length).toBe(1);
+  });
+
+  it("destroy() resolves cleanly and the server receives no further requests after", async () => {
+    const provider = createGA4Provider({
+      measurementId: "test",
+      apiSecret: "test",
+      apiHost: server.url.toString(),
+    });
+
+    await provider.track(makeEvent({ name: "Purchase Completed", properties: { orderId: "o1", total: 42 } }));
+    expect(received.length).toBe(1);
+
+    await expect(provider.destroy?.()).resolves.toBeUndefined();
 
     expect(received.length).toBe(1);
   });
