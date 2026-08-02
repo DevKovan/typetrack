@@ -38,3 +38,20 @@ are the record, this is just a trail of what happened when.
   root's `file:` snapshot; `qa.yml`'s Build step is now just `bun install`
   + `bun run build:all`, replacing the old hand-rolled interleaved
   install/build sequence.
+- Phase 6 (canonical event model + provider rework, breaking): replaced
+  bare `EventMeta` with a full `CanonicalEvent` (`name`, `properties`,
+  `timestamp`, `anonymousId`, `userId`, `sessionId`, `context`,
+  `metadata`); identity/session state moved into core (`createAnalytics`
+  now owns `anonymousId`/`sessionId`/`userId`, adapters no longer generate
+  their own); `Analytics`/`AnalyticsProvider` gained `group`/`alias`/
+  `screen`/`reset`/`destroy`; every adapter (GA4, PostHog, Segment) gained
+  a `capabilities` declaration plus canonical→vendor event-name/
+  property-name mapping tables (defaults + app overrides); unsupported
+  capability calls now warn-once-and-no-op instead of silently no-oping;
+  resolved the `flush()` terminal-vs-non-terminal disagreement (`flush()`
+  is always non-terminal, `destroy()` is the new terminal
+  flush-then-teardown op — Segment's adapter changed from
+  `closeAndFlush()`-on-`flush()` to a genuinely non-terminal `flush()`).
+  Shipped `examples/core/` (canonical event shape + provider-switch demo).
+  Per the new policy (see "Policy changes" in `plan/ROADMAP.md`), this
+  phase's issue files stay in `plan/phase-6-canonical/` permanently.
