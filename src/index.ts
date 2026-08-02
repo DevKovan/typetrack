@@ -2,8 +2,8 @@ import { noopProvider, type AnalyticsProvider } from "./providers";
 import { EventValidationError } from "./schema";
 import type { EventMap, EventMeta, SchemaMap, TrackArgs } from "./schema";
 
-export type { AnalyticsProvider } from "./providers";
-export type { EventMap, EventMeta, InferEvents, SchemaMap } from "./schema";
+export type { AnalyticsProvider, ProviderCapabilities } from "./providers";
+export type { CanonicalEvent, EventMap, InferEvents, SchemaMap, TrackOptions } from "./schema";
 export { EventValidationError } from "./schema";
 
 export interface CreateAnalyticsOptions<Events extends EventMap = EventMap> {

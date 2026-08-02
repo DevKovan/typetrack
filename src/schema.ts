@@ -1,8 +1,28 @@
 import type { z } from "zod";
 
-// Filled in by the core before dispatch; callers never set this directly.
-export interface EventMeta {
+// The canonical, provider-agnostic shape every tracked/paged/screened event
+// is normalized into before it reaches an `AnalyticsProvider`. This is what
+// replaces the bare `EventMeta` (`{ timestamp }`) from Phase 0-5: instead of
+// providers reinventing identity/session bookkeeping themselves, core builds
+// one of these per call and every provider method that ships an event
+// receives the full object.
+export interface CanonicalEvent {
+  name: string;
+  properties: Record<string, unknown>;
   timestamp: number;
+  anonymousId: string;
+  userId?: string;
+  sessionId: string;
+  context?: Record<string, unknown>;
+  metadata?: Record<string, unknown>;
+}
+
+// Optional per-call `track()` extras that ride alongside the payload but are
+// never validated against a `schemas[event]` entry -- only `payload` is ever
+// passed to `schema.safeParse()`.
+export interface TrackOptions {
+  context?: Record<string, unknown>;
+  metadata?: Record<string, unknown>;
 }
 
 // Maps event names to their payload shape. A value of `undefined` marks a
@@ -11,15 +31,18 @@ export interface EventMeta {
 // assignable to `AnalyticsProvider.track`'s `Record<string, unknown>` param.
 export type EventMap = Record<string, Record<string, unknown> | undefined>;
 
-// Resolves the tuple type for `track()`'s trailing payload argument for a
-// single event's payload type `V`. Written against a naked type parameter
-// (rather than inline against an indexed-access type like `Events[K]`) so
-// that TypeScript distributes the conditional over unions -- this is what
-// makes the default, fully-permissive `EventMap` (`Record<string,
-// Record<string, unknown> | undefined>`) keep `payload` optional, matching
-// Phase 0 behavior, rather than collapsing to a single non-distributed
-// "required" branch.
-export type TrackArgs<V> = V extends undefined ? [payload?: V] : [payload: V];
+// Resolves the tuple type for `track()`'s trailing arguments for a single
+// event's payload type `V`: an optional/required `payload` (depending on
+// whether `V` is `undefined`) followed by an always-optional trailing
+// `TrackOptions`. Written against a naked type parameter (rather than inline
+// against an indexed-access type like `Events[K]`) so that TypeScript
+// distributes the conditional over unions -- this is what makes the default,
+// fully-permissive `EventMap` (`Record<string, Record<string, unknown> |
+// undefined>`) keep `payload` optional, matching Phase 0 behavior, rather
+// than collapsing to a single non-distributed "required" branch.
+export type TrackArgs<V> = V extends undefined
+  ? [payload?: V, options?: TrackOptions]
+  : [payload: V, options?: TrackOptions];
 
 // Optional per-event Zod schema map. A partial mapped type -- callers may
 // supply a schema for some events only; events without an entry receive no
