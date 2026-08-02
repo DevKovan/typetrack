@@ -1,7 +1,8 @@
 import { describe, expect, it } from "bun:test";
 import { createAnalytics } from "./index";
 import type { AnalyticsProvider } from "./providers";
-import type { EventMeta } from "./schema";
+import type { CanonicalEvent } from "./schema";
+import { allCapabilities } from "./test-support";
 
 type AppEvents = {
   signup_completed: { plan: "free" | "pro" };
@@ -13,10 +14,11 @@ type AppEvents = {
 // adapter.
 class RecordingProvider implements AnalyticsProvider {
   name = "recording";
-  calls: Array<{ event: string; payload: Record<string, unknown>; meta: EventMeta }> = [];
+  capabilities = allCapabilities;
+  calls: CanonicalEvent[] = [];
 
-  track(event: string, payload: Record<string, unknown>, meta: EventMeta) {
-    this.calls.push({ event, payload, meta });
+  track(event: CanonicalEvent) {
+    this.calls.push(event);
   }
 }
 
@@ -30,12 +32,12 @@ describe("createAnalytics<Events>() integration", () => {
 
     expect(provider.calls).toHaveLength(2);
 
-    expect(provider.calls[0]!.event).toBe("signup_completed");
-    expect(provider.calls[0]!.payload).toEqual({ plan: "free" });
-    expect(provider.calls[0]!.meta.timestamp).toBeGreaterThan(0);
+    expect(provider.calls[0]!.name).toBe("signup_completed");
+    expect(provider.calls[0]!.properties).toEqual({ plan: "free" });
+    expect(provider.calls[0]!.timestamp).toBeGreaterThan(0);
 
-    expect(provider.calls[1]!.event).toBe("page_viewed");
-    expect(provider.calls[1]!.payload).toEqual({});
-    expect(provider.calls[1]!.meta.timestamp).toBeGreaterThan(0);
+    expect(provider.calls[1]!.name).toBe("page_viewed");
+    expect(provider.calls[1]!.properties).toEqual({});
+    expect(provider.calls[1]!.timestamp).toBeGreaterThan(0);
   });
 });

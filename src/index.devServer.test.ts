@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, mock } from "bun:test";
 import { z } from "zod";
 import { createAnalytics } from "./index";
 import type { AnalyticsProvider } from "./providers";
+import { allCapabilities } from "./test-support";
 
 type SampleEvents = {
   signup_completed: { plan: string; source: string };
@@ -27,7 +28,7 @@ describe("createAnalytics({ devServer }) unit tests", () => {
     const fetchStub = stubFetch(() => Promise.resolve(new Response(null, { status: 200 })));
 
     const track = mock<AnalyticsProvider["track"]>(() => {});
-    const provider: AnalyticsProvider = { name: "test", track };
+    const provider: AnalyticsProvider = { name: "test", capabilities: allCapabilities, track };
     const analytics = createAnalytics<SampleEvents>({ provider });
 
     analytics.track("page_viewed", { path: "/" });
@@ -39,7 +40,7 @@ describe("createAnalytics({ devServer }) unit tests", () => {
   it("with devServer: true, posts to the default URL with a body containing the event name and raw payload", () => {
     const fetchStub = stubFetch(() => Promise.resolve(new Response(null, { status: 200 })));
 
-    const provider: AnalyticsProvider = { name: "test", track: mock(() => {}) };
+    const provider: AnalyticsProvider = { name: "test", capabilities: allCapabilities, track: mock(() => {}) };
     const analytics = createAnalytics<SampleEvents>({ provider, devServer: true });
 
     analytics.track("page_viewed", { path: "/home" });
@@ -56,7 +57,7 @@ describe("createAnalytics({ devServer }) unit tests", () => {
   it("with devServer: { url }, posts to exactly that URL", () => {
     const fetchStub = stubFetch(() => Promise.resolve(new Response(null, { status: 200 })));
 
-    const provider: AnalyticsProvider = { name: "test", track: mock(() => {}) };
+    const provider: AnalyticsProvider = { name: "test", capabilities: allCapabilities, track: mock(() => {}) };
     const analytics = createAnalytics<SampleEvents>({
       provider,
       devServer: { url: "http://localhost:9999/events" },
@@ -72,7 +73,7 @@ describe("createAnalytics({ devServer }) unit tests", () => {
   it("track() returns synchronously without awaiting the dev POST, even when fetch hangs forever", () => {
     const fetchStub = stubFetch(() => new Promise<Response>(() => {}));
 
-    const provider: AnalyticsProvider = { name: "test", track: mock(() => {}) };
+    const provider: AnalyticsProvider = { name: "test", capabilities: allCapabilities, track: mock(() => {}) };
     const analytics = createAnalytics<SampleEvents>({ provider, devServer: true });
 
     const result = analytics.track("page_viewed", { path: "/home" });
@@ -129,7 +130,7 @@ describe("createAnalytics({ devServer }) unit tests", () => {
       errorCalls.push(args);
     };
 
-    const provider: AnalyticsProvider = { name: "test", track: mock(() => {}) };
+    const provider: AnalyticsProvider = { name: "test", capabilities: allCapabilities, track: mock(() => {}) };
     const analytics = createAnalytics<SampleEvents>({ provider, devServer: true });
 
     let thrown: unknown;

@@ -2,6 +2,7 @@ import { describe, expect, it, mock } from "bun:test";
 import { z } from "zod";
 import { createAnalytics, EventValidationError } from "./index";
 import type { AnalyticsProvider } from "./providers";
+import { allCapabilities } from "./test-support";
 
 type SampleEvents = {
   signup_completed: { plan: string; source: string };
@@ -11,7 +12,7 @@ type SampleEvents = {
 describe("createAnalytics() runtime Zod validation", () => {
   it("forwards the *parsed* payload (not the raw input) for a schema-backed event, honoring .transform()/.default()", () => {
     const track = mock<AnalyticsProvider["track"]>(() => {});
-    const provider: AnalyticsProvider = { name: "test", track };
+    const provider: AnalyticsProvider = { name: "test", capabilities: allCapabilities, track };
 
     const analytics = createAnalytics<SampleEvents>({
       provider,
@@ -30,15 +31,15 @@ describe("createAnalytics() runtime Zod validation", () => {
     analytics.track("signup_completed", { plan: "pro" } as SampleEvents["signup_completed"]);
 
     expect(track).toHaveBeenCalledTimes(1);
-    const [, payload] = track.mock.calls[0]!;
+    const [canonicalEvent] = track.mock.calls[0]!;
     // Proves parsed-not-raw: the raw input was `{ plan: "pro" }`, but the
     // forwarded payload reflects the schema's transform + default.
-    expect(payload).toEqual({ plan: "PRO", source: "unknown" });
+    expect(canonicalEvent.properties).toEqual({ plan: "PRO", source: "unknown" });
   });
 
   it("passes an event without a schemas entry through unvalidated, raw payload forwarded byte-for-byte", () => {
     const track = mock<AnalyticsProvider["track"]>(() => {});
-    const provider: AnalyticsProvider = { name: "test", track };
+    const provider: AnalyticsProvider = { name: "test", capabilities: allCapabilities, track };
 
     const analytics = createAnalytics<SampleEvents>({
       provider,
@@ -54,12 +55,12 @@ describe("createAnalytics() runtime Zod validation", () => {
     analytics.track("page_viewed", { path: "/pricing" });
 
     expect(track).toHaveBeenCalledTimes(1);
-    const [, payload] = track.mock.calls[0]!;
-    expect(payload).toEqual({ path: "/pricing" });
+    const [canonicalEvent] = track.mock.calls[0]!;
+    expect(canonicalEvent.properties).toEqual({ path: "/pricing" });
   });
 
   it("throws EventValidationError carrying the event name and the underlying Zod issues on invalid payloads", () => {
-    const provider: AnalyticsProvider = { name: "test", track: () => {} };
+    const provider: AnalyticsProvider = { name: "test", capabilities: allCapabilities, track: () => {} };
 
     const analytics = createAnalytics<SampleEvents>({
       provider,
@@ -87,7 +88,7 @@ describe("createAnalytics() runtime Zod validation", () => {
 
   it("does not call the provider when validation fails", () => {
     const track = mock<AnalyticsProvider["track"]>(() => {});
-    const provider: AnalyticsProvider = { name: "test", track };
+    const provider: AnalyticsProvider = { name: "test", capabilities: allCapabilities, track };
 
     const analytics = createAnalytics<SampleEvents>({
       provider,

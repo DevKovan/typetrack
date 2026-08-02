@@ -2,7 +2,8 @@ import { describe, expect, it } from "bun:test";
 import { z } from "zod";
 import { createAnalytics, EventValidationError } from "./index";
 import type { AnalyticsProvider } from "./providers";
-import type { EventMeta, InferEvents } from "./schema";
+import type { CanonicalEvent, InferEvents } from "./schema";
+import { allCapabilities } from "./test-support";
 
 // A real (not mocked) Zod schema map spanning two schema-backed events, per
 // the issue's integration test requirements.
@@ -23,10 +24,11 @@ type AppEvents = InferEvents<typeof eventSchemas>;
 // adapter.
 class RecordingProvider implements AnalyticsProvider {
   name = "recording";
-  calls: Array<{ event: string; payload: Record<string, unknown>; meta: EventMeta }> = [];
+  capabilities = allCapabilities;
+  calls: CanonicalEvent[] = [];
 
-  track(event: string, payload: Record<string, unknown>, meta: EventMeta) {
-    this.calls.push({ event, payload, meta });
+  track(event: CanonicalEvent) {
+    this.calls.push(event);
   }
 }
 
@@ -63,10 +65,10 @@ describe("createAnalytics<Events>({ schemas, onValidationError }) integration", 
 
     // Only the valid calls reached the provider, in order.
     expect(provider.calls).toHaveLength(2);
-    expect(provider.calls[0]!.event).toBe("signup_completed");
-    expect(provider.calls[0]!.payload).toEqual({ plan: "pro", email: "user@example.com" });
-    expect(provider.calls[1]!.event).toBe("page_viewed");
-    expect(provider.calls[1]!.payload).toEqual({ path: "/pricing" });
+    expect(provider.calls[0]!.name).toBe("signup_completed");
+    expect(provider.calls[0]!.properties).toEqual({ plan: "pro", email: "user@example.com" });
+    expect(provider.calls[1]!.name).toBe("page_viewed");
+    expect(provider.calls[1]!.properties).toEqual({ path: "/pricing" });
 
     // All invalid calls were captured via onValidationError, in order, with
     // the correct event names.

@@ -2,7 +2,8 @@ import { describe, expect, it, mock } from "bun:test";
 import { z } from "zod";
 import { createAnalytics, EventValidationError } from "./index";
 import type { AnalyticsProvider } from "./providers";
-import type { EventMeta, InferEvents } from "./schema";
+import type { CanonicalEvent, InferEvents } from "./schema";
+import { allCapabilities } from "./test-support";
 
 // A real (not mocked) Zod schema map: an object with a required enum field
 // and a `.min(1)` refinement, per the issue's integration test requirements.
@@ -24,10 +25,11 @@ type AppEvents = InferEvents<typeof eventSchemas> & {
 // adapter.
 class RecordingProvider implements AnalyticsProvider {
   name = "recording";
-  calls: Array<{ event: string; payload: Record<string, unknown>; meta: EventMeta }> = [];
+  capabilities = allCapabilities;
+  calls: CanonicalEvent[] = [];
 
-  track(event: string, payload: Record<string, unknown>, meta: EventMeta) {
-    this.calls.push({ event, payload, meta });
+  track(event: CanonicalEvent) {
+    this.calls.push(event);
   }
 }
 
@@ -39,14 +41,14 @@ describe("createAnalytics<Events>({ schemas }) integration", () => {
     await analytics.track("signup_completed", { plan: "pro", email: "user@example.com" });
 
     expect(provider.calls).toHaveLength(1);
-    expect(provider.calls[0]!.event).toBe("signup_completed");
-    expect(provider.calls[0]!.payload).toEqual({ plan: "pro", email: "user@example.com" });
-    expect(provider.calls[0]!.meta.timestamp).toBeGreaterThan(0);
+    expect(provider.calls[0]!.name).toBe("signup_completed");
+    expect(provider.calls[0]!.properties).toEqual({ plan: "pro", email: "user@example.com" });
+    expect(provider.calls[0]!.timestamp).toBeGreaterThan(0);
   });
 
   it("throws EventValidationError and never calls the provider for a payload missing a required field", () => {
     const track = mock<AnalyticsProvider["track"]>(() => {});
-    const provider: AnalyticsProvider = { name: "spy", track };
+    const provider: AnalyticsProvider = { name: "spy", capabilities: allCapabilities, track };
     const analytics = createAnalytics<AppEvents>({ provider, schemas: eventSchemas });
 
     expect(() =>
@@ -59,7 +61,7 @@ describe("createAnalytics<Events>({ schemas }) integration", () => {
 
   it("throws EventValidationError and never calls the provider for a payload failing a Zod refinement", () => {
     const track = mock<AnalyticsProvider["track"]>(() => {});
-    const provider: AnalyticsProvider = { name: "spy", track };
+    const provider: AnalyticsProvider = { name: "spy", capabilities: allCapabilities, track };
     const analytics = createAnalytics<AppEvents>({ provider, schemas: eventSchemas });
 
     let caught: unknown;
@@ -84,10 +86,10 @@ describe("createAnalytics<Events>({ schemas }) integration", () => {
 
     expect(provider.calls).toHaveLength(2);
 
-    expect(provider.calls[0]!.event).toBe("page_viewed");
-    expect(provider.calls[0]!.payload).toEqual({ path: "/home" });
+    expect(provider.calls[0]!.name).toBe("page_viewed");
+    expect(provider.calls[0]!.properties).toEqual({ path: "/home" });
 
-    expect(provider.calls[1]!.event).toBe("signup_completed");
-    expect(provider.calls[1]!.payload).toEqual({ plan: "free", email: "a@b.co" });
+    expect(provider.calls[1]!.name).toBe("signup_completed");
+    expect(provider.calls[1]!.properties).toEqual({ plan: "free", email: "a@b.co" });
   });
 });

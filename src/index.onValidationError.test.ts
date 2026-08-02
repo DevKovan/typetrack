@@ -2,6 +2,7 @@ import { describe, expect, it, mock } from "bun:test";
 import { z } from "zod";
 import { createAnalytics, EventValidationError } from "./index";
 import type { AnalyticsProvider } from "./providers";
+import { allCapabilities } from "./test-support";
 
 type SampleEvents = {
   signup_completed: { plan: string; source: string };
@@ -11,7 +12,7 @@ type SampleEvents = {
 describe("createAnalytics({ onValidationError }) unit tests", () => {
   it("does not throw and calls onValidationError exactly once with a matching EventValidationError when configured", () => {
     const track = mock<AnalyticsProvider["track"]>(() => {});
-    const provider: AnalyticsProvider = { name: "test", track };
+    const provider: AnalyticsProvider = { name: "test", capabilities: allCapabilities, track };
     const onValidationError = mock<(error: EventValidationError) => void>(() => {});
 
     const analytics = createAnalytics<SampleEvents>({
@@ -40,7 +41,7 @@ describe("createAnalytics({ onValidationError }) unit tests", () => {
 
   it("without onValidationError configured, still throws EventValidationError synchronously (regression guard for issue 002)", () => {
     const track = mock<AnalyticsProvider["track"]>(() => {});
-    const provider: AnalyticsProvider = { name: "test", track };
+    const provider: AnalyticsProvider = { name: "test", capabilities: allCapabilities, track };
 
     const analytics = createAnalytics<SampleEvents>({
       provider,
@@ -57,7 +58,7 @@ describe("createAnalytics({ onValidationError }) unit tests", () => {
 
   it("propagates an exception thrown by onValidationError itself out of track()", () => {
     const track = mock<AnalyticsProvider["track"]>(() => {});
-    const provider: AnalyticsProvider = { name: "test", track };
+    const provider: AnalyticsProvider = { name: "test", capabilities: allCapabilities, track };
     const handlerError = new Error("handler blew up");
     const onValidationError = mock<(error: EventValidationError) => void>(() => {
       throw handlerError;
@@ -79,7 +80,7 @@ describe("createAnalytics({ onValidationError }) unit tests", () => {
 
   it("leaves successful validations entirely unaffected when onValidationError is configured", () => {
     const track = mock<AnalyticsProvider["track"]>(() => {});
-    const provider: AnalyticsProvider = { name: "test", track };
+    const provider: AnalyticsProvider = { name: "test", capabilities: allCapabilities, track };
     const onValidationError = mock<(error: EventValidationError) => void>(() => {});
 
     const analytics = createAnalytics<SampleEvents>({
@@ -94,7 +95,7 @@ describe("createAnalytics({ onValidationError }) unit tests", () => {
 
     expect(onValidationError).not.toHaveBeenCalled();
     expect(track).toHaveBeenCalledTimes(1);
-    const [, payload] = track.mock.calls[0]!;
-    expect(payload).toEqual({ plan: "pro", source: "ad" });
+    const [canonicalEvent] = track.mock.calls[0]!;
+    expect(canonicalEvent.properties).toEqual({ plan: "pro", source: "ad" });
   });
 });
