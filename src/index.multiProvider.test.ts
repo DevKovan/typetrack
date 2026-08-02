@@ -180,7 +180,7 @@ describe("createAnalytics() multi-provider fan-out", () => {
     expect(flushB).toHaveBeenCalledTimes(1);
   });
 
-  it("destroy() iterates every provider in the array (minimal correct multi-provider iteration; AggregateError contract is out of scope)", async () => {
+  it("destroy() iterates every provider in the array (minimal correct multi-provider iteration; AggregateError contract is covered in index.flushDestroy.test.ts)", async () => {
     const flushA = mock(async () => {});
     const destroyA = mock(async () => {});
     const flushB = mock(async () => {});

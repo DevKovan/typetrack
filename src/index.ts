@@ -148,6 +148,29 @@ export function createAnalytics<Events extends EventMap = EventMap>(
     }
   }
 
+  // Collects rejection reasons from a `Promise.allSettled` fan-out, without
+  // swallowing/warning -- distinct contract from `dispatchToProviders`.
+  // Every entry still gets the chance to settle (never fail-fast); the
+  // caller decides what to do with the returned reasons (issue 004: `flush`/
+  // `destroy` throw a combined `AggregateError` if this is non-empty).
+  async function settleAll(
+    entries: ProviderEntry[],
+    invoke: (entry: ProviderEntry) => void | Promise<void>,
+  ): Promise<unknown[]> {
+    const results = await Promise.allSettled(
+      entries.map(async (entry) => {
+        await invoke(entry);
+      }),
+    );
+    const reasons: unknown[] = [];
+    for (const result of results) {
+      if (result.status === "rejected") {
+        reasons.push(result.reason);
+      }
+    }
+    return reasons;
+  }
+
   function buildEvent(
     name: string | undefined,
     props: Record<string, unknown> | undefined,
@@ -328,10 +351,15 @@ export function createAnalytics<Events extends EventMap = EventMap>(
         return;
       }
 
-      // Minimal correct multi-provider iteration -- swallow-and-warn on
-      // rejection, same as every other fan-out verb. Issue 004 changes this
-      // to throw an `AggregateError` instead; out of scope here.
-      await dispatchToProviders(normalized.entries, "flush", (entry) => entry.provider.flush?.());
+      // Unlike every other fan-out verb, `flush`/`destroy` do not
+      // swallow-and-warn: every provider still gets the chance to settle
+      // (never fail-fast), but a non-empty rejection list is thrown as a
+      // real `AggregateError` -- no `console.warn` on this path, which would
+      // double-report the same failures.
+      const reasons = await settleAll(normalized.entries, (entry) => entry.provider.flush?.());
+      if (reasons.length > 0) {
+        throw new AggregateError(reasons, `typetrack: ${reasons.length} provider(s) failed during flush()`);
+      }
     },
     async destroy() {
       // Drain first, then tear down, per provider. Not capability-gated.
@@ -341,13 +369,18 @@ export function createAnalytics<Events extends EventMap = EventMap>(
         return;
       }
 
-      // Minimal correct multi-provider iteration -- swallow-and-warn on
-      // rejection, same as every other fan-out verb. Issue 004 changes this
-      // to throw an `AggregateError` instead; out of scope here.
-      await dispatchToProviders(normalized.entries, "destroy", async (entry) => {
-        await entry.provider.flush?.();
-        await entry.provider.destroy?.();
-      });
+      // Two phases across the whole array: every provider's flush is
+      // allowed to settle first (collecting rejections, not throwing yet),
+      // then every provider's destroy runs regardless of whether that same
+      // provider's flush rejected -- teardown is not optional just because
+      // draining failed. Rejections from both phases are combined into one
+      // `AggregateError`, thrown only after both phases have fully settled.
+      const flushReasons = await settleAll(normalized.entries, (entry) => entry.provider.flush?.());
+      const destroyReasons = await settleAll(normalized.entries, (entry) => entry.provider.destroy?.());
+      const reasons = [...flushReasons, ...destroyReasons];
+      if (reasons.length > 0) {
+        throw new AggregateError(reasons, `typetrack: ${reasons.length} provider(s) failed during destroy()`);
+      }
     },
   };
 }

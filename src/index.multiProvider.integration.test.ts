@@ -9,7 +9,7 @@
 // Mirrors src/routing.integration.test.ts's structure but through the real
 // createAnalytics() entry point instead of calling routing.ts functions
 // directly.
-import { afterEach, describe, expect, it } from "bun:test";
+import { afterEach, describe, expect, it, mock } from "bun:test";
 import { createAnalytics } from "./index";
 import type { AnalyticsProvider } from "./providers";
 import { allCapabilities } from "./test-support";
@@ -215,5 +215,79 @@ describe("createAnalytics() multi-provider integration", () => {
 
     expect(neverSampled.calls).toHaveLength(0);
     expect(alwaysSampled.calls).toHaveLength(3);
+  });
+
+  it("issue 004: destroy() across a realistic 3-provider array where one provider's flush and another's destroy reject -- throws a real AggregateError containing both original errors, every provider's flush()/destroy() still called exactly once", async () => {
+    console.warn = () => {};
+
+    const flushFailure = new Error("network failure: flush timed out after 5000ms");
+    const destroyFailure = new Error("network failure: destroy connection reset");
+
+    const flushA = mock(async () => {
+      throw flushFailure;
+    });
+    const destroyA = mock(async () => {});
+    const providerA: AnalyticsProvider = {
+      name: "flush-fails",
+      capabilities: allCapabilities,
+      track() {},
+      async flush() {
+        await flushA();
+      },
+      async destroy() {
+        await destroyA();
+      },
+    };
+
+    const flushB = mock(async () => {});
+    const destroyB = mock(async () => {
+      throw destroyFailure;
+    });
+    const providerB: AnalyticsProvider = {
+      name: "destroy-fails",
+      capabilities: allCapabilities,
+      track() {},
+      async flush() {
+        await flushB();
+      },
+      async destroy() {
+        await destroyB();
+      },
+    };
+
+    const flushC = mock(async () => {});
+    const destroyC = mock(async () => {});
+    const providerC: AnalyticsProvider = {
+      name: "healthy",
+      capabilities: allCapabilities,
+      track() {},
+      async flush() {
+        await flushC();
+      },
+      async destroy() {
+        await destroyC();
+      },
+    };
+
+    const analytics = createAnalytics({ provider: [providerA, providerB, providerC] });
+
+    let thrown: unknown;
+    try {
+      await analytics.destroy();
+    } catch (err) {
+      thrown = err;
+    }
+
+    expect(thrown).toBeInstanceOf(AggregateError);
+    const aggregate = thrown as AggregateError;
+    expect(aggregate.errors).toContain(flushFailure);
+    expect(aggregate.errors).toContain(destroyFailure);
+
+    expect(flushA).toHaveBeenCalledTimes(1);
+    expect(destroyA).toHaveBeenCalledTimes(1);
+    expect(flushB).toHaveBeenCalledTimes(1);
+    expect(destroyB).toHaveBeenCalledTimes(1);
+    expect(flushC).toHaveBeenCalledTimes(1);
+    expect(destroyC).toHaveBeenCalledTimes(1);
   });
 });
