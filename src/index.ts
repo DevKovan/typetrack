@@ -29,6 +29,8 @@ export { EventValidationError } from "./schema";
 export type { CapturedContext, ContextOptions } from "./context";
 export { isBrowserEnvironment } from "./context";
 export type { Plugin } from "./plugins";
+export { autoPage, dispatchPageView } from "./plugins/autoPage";
+export type { PageViewArgs, AutoPageOptions } from "./plugins/autoPage";
 
 export interface CreateAnalyticsOptions<Events extends EventMap = EventMap> {
   // A single bare provider keeps exact Phase 6 passthrough behavior (no
