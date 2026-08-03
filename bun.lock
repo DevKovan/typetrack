@@ -31,6 +31,13 @@
         "typetrack": "file:../../..",
       },
     },
+    "examples/core/context-capture": {
+      "name": "example-core-context-capture",
+      "version": "0.0.0",
+      "dependencies": {
+        "typetrack": "file:../../..",
+      },
+    },
     "examples/core/provider-switch": {
       "name": "example-core-provider-switch",
       "version": "0.0.0",
@@ -578,6 +585,8 @@
 
     "example-core-canonical-event-shape": ["example-core-canonical-event-shape@workspace:examples/core/canonical-event-shape"],
 
+    "example-core-context-capture": ["example-core-context-capture@workspace:examples/core/context-capture"],
+
     "example-core-provider-switch": ["example-core-provider-switch@workspace:examples/core/provider-switch"],
 
     "example-middleware-pipeline-basics": ["example-middleware-pipeline-basics@workspace:examples/middleware/pipeline-basics"],
@@ -736,9 +745,7 @@
 
     "@testing-library/jest-dom/dom-accessibility-api": ["dom-accessibility-api@0.6.3", "", {}, "sha512-7ZgogeTnjuHbo+ct10G9Ffp0mif17idi0IyWNVA/wcwcm7NPOD/WEHVP3n7n3MhXqxoIYm8d6MuZohYWIZ4T3w=="],
 
-    "example-middleware-pipeline-basics/typetrack": ["typetrack@root:", {}],
-
-    "example-middleware-sampling-vs-routing/typetrack": ["typetrack@root:", {}],
+    "example-core-context-capture/typetrack": ["typetrack@root:", {}],
 
     "tsup/chokidar": ["chokidar@4.0.3", "", { "dependencies": { "readdirp": "^4.0.1" } }, "sha512-Qgzu8kfBvo+cA4962jnP1KkS6Dop5NS6g7R5LFYJr4b8Ub94PPQXUksCw9PvXoeXPRRddRNC5C1JQUR2SMGtnA=="],
 

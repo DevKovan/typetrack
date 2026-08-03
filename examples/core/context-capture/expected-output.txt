@@ -1,0 +1,173 @@
+This is the literal console output produced by `bun run index.ts`.
+
+`session.startedAt`, `session.durationMs`, and `timezone` below are
+illustrative -- `startedAt`/`durationMs` are freshly generated from the clock
+(`Date.now()`) on every run, and `timezone` reflects whatever IANA zone the
+machine running this example is actually configured with (via
+`Intl.DateTimeFormat().resolvedOptions().timeZone`), so your actual values
+WILL DIFFER. `locale` is deterministic wherever it is explicitly stubbed
+(`"en-US"`/the overridden `"fr-FR"`) below, but in the final ("no browser")
+block it too comes from `Intl` and so is also machine-dependent. Everything
+else -- field names, field order, which fields are present vs. omitted, and
+all other values -- is exactly reproducible.
+
+page("Home") context ->
+{
+  "locale": "en-US",
+  "timezone": "Asia/Calcutta",
+  "browser": {
+    "name": "Chrome",
+    "version": "124.0.0.0"
+  },
+  "os": {
+    "name": "macOS",
+    "version": "10.15.7"
+  },
+  "device": {
+    "type": "desktop"
+  },
+  "viewport": {
+    "width": 1440,
+    "height": 900
+  },
+  "referrer": "https://www.google.com/search?q=typetrack+analytics",
+  "campaign": {
+    "source": "newsletter",
+    "medium": "email",
+    "campaign": "spring-sale"
+  },
+  "session": {
+    "startedAt": 1785781560099,
+    "eventCount": 1,
+    "durationMs": 0
+  }
+}
+track("Checkout Started") context ->
+{
+  "locale": "en-US",
+  "timezone": "Asia/Calcutta",
+  "browser": {
+    "name": "Chrome",
+    "version": "124.0.0.0"
+  },
+  "os": {
+    "name": "macOS",
+    "version": "10.15.7"
+  },
+  "device": {
+    "type": "desktop"
+  },
+  "viewport": {
+    "width": 1440,
+    "height": 900
+  },
+  "referrer": "https://www.google.com/search?q=typetrack+analytics",
+  "campaign": {
+    "source": "newsletter",
+    "medium": "email",
+    "campaign": "spring-sale"
+  },
+  "session": {
+    "startedAt": 1785781560099,
+    "eventCount": 2,
+    "durationMs": 0
+  }
+}
+track("Signup Completed") context ->
+{
+  "locale": "fr-FR",
+  "timezone": "Asia/Calcutta",
+  "browser": {
+    "name": "Chrome",
+    "version": "124.0.0.0"
+  },
+  "os": {
+    "name": "macOS",
+    "version": "10.15.7"
+  },
+  "device": {
+    "type": "desktop"
+  },
+  "viewport": {
+    "width": 1440,
+    "height": 900
+  },
+  "referrer": "https://www.google.com/search?q=typetrack+analytics",
+  "campaign": {
+    "source": "newsletter",
+    "medium": "email",
+    "campaign": "spring-sale"
+  },
+  "session": {
+    "startedAt": 1785781560099,
+    "eventCount": 3,
+    "durationMs": 0
+  }
+}
+page("Pricing") context ->
+{
+  "locale": "en-US",
+  "timezone": "Asia/Calcutta",
+  "browser": {
+    "name": "Chrome",
+    "version": "124.0.0.0"
+  },
+  "os": {
+    "name": "macOS",
+    "version": "10.15.7"
+  },
+  "device": {
+    "type": "desktop"
+  },
+  "viewport": {
+    "width": 1440,
+    "height": 900
+  },
+  "referrer": "https://www.google.com/search?q=typetrack+analytics",
+  "campaign": {
+    "source": "newsletter",
+    "medium": "email",
+    "campaign": "spring-sale"
+  },
+  "featureFlags": {
+    "betaCheckout": true,
+    "newPricing": "variant-b"
+  },
+  "session": {
+    "startedAt": 1785781560099,
+    "eventCount": 1,
+    "durationMs": 0
+  }
+}
+track("Checkout Started") context ->
+{
+  "locale": "en-US",
+  "timezone": "Asia/Calcutta",
+  "session": {
+    "startedAt": 1785781560099,
+    "eventCount": 1,
+    "durationMs": 0
+  }
+}
+
+Notes on what's NOT printed above, and why:
+- The final `track("Checkout Started")` block -- the "no browser" scenario --
+  has no "browser"/"os"/"device"/"viewport"/"referrer"/"campaign" keys at
+  all: `clearBrowserGlobals()` was called just before constructing that
+  instance, so `isBrowserEnvironment()` returns `false` for the whole
+  instance's lifetime, and every browser-only field is simply omitted (not
+  `undefined`-valued keys -- `JSON.stringify` would drop those too, but these
+  are never even set in the first place).
+- The same block has no "featureFlags" key either: that instance was
+  constructed with `context: true` (no `featureFlags` getter supplied), so
+  `captureDynamicContext` never invokes anything and omits the key entirely.
+- The third block (`track("Signup Completed")`) shows `"locale": "fr-FR"`,
+  not the auto-captured `"en-US"` seen everywhere else in the browser-stubbed
+  scenarios -- the caller's explicit `{ context: { locale: "fr-FR" } }` won
+  on that one key, while every other auto-captured field
+  (`timezone`/`browser`/`os`/`device`/`viewport`/`referrer`/`campaign`/
+  `session`) is untouched, demonstrating the shallow, caller-wins merge rule.
+- `session.eventCount` climbs 1 -> 2 -> 3 across the first three blocks (all
+  three calls share one `createAnalytics()` instance/session), then resets
+  to 1 in the fourth block (a fresh instance, its own session) and again in
+  the fifth (another fresh instance).

@@ -24,6 +24,15 @@ or running it locally, not shipped library code.
   (`track`/`identify`/`group`/`track`) against a hand-written
   console-logging provider, showing every canonical field
   (`anonymousId`/`sessionId`/`userId`/`context`/`metadata`/...) populated.
+- **[`context-capture/`](./context-capture)** -- Phase 9's opt-in
+  `createAnalytics({ context: true })`: a realistic page load in a stubbed
+  browser (Chrome-on-macOS UA, a search-engine referrer, UTM campaign
+  params), the full auto-captured `context` shape it produces, `context
+  .session.eventCount` incrementing across calls, the caller-wins
+  merge/precedence rule, the app-owned `featureFlags` getter, and --
+  critically -- the same config run with no browser present at all, showing
+  the safe-no-op guarantee (`locale`/`timezone`/`session` still populate,
+  every browser-only field is simply absent).
 - **[`provider-switch/`](./provider-switch)** -- the same realistic checkout
   flow (`app.ts`) run against three different providers (`noopProvider`, a
   real `createGA4Provider` pointed at a local stub, and -- documented but
