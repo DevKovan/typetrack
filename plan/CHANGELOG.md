@@ -75,3 +75,26 @@ are the record, this is just a trail of what happened when.
   in full regardless of flush-phase rejections). Shipped
   `examples/providers/` (multi-provider routing demo). Per policy, this
   phase's issue files stay in `plan/phase-7-multi-provider/` permanently.
+- Phase 8 (middleware): `analytics.use(middleware)` registers an object
+  with `before?`/`after?`/`onError?` hooks (`src/middleware.ts`), run
+  once globally per `track`/`page`/`screen` call, immediately after the
+  canonical event is built and before Phase 7's routing/fan-out —
+  `identify`/`group`/`alias`/`reset`/`flush`/`destroy` are unaffected.
+  Chain is linear (registration order for both `before` and `after`); a
+  `before()` returning `null`/`undefined` drops the event immediately
+  (no later `before`s, no dispatch, no `after`s at all, no error). A
+  thrown/rejected `before()`/`after()`, or a provider dispatch rejection,
+  invokes `onError(error, event, ctx)` on every middleware whose
+  `before()` ran for that call, with `ctx.source: "middleware" |
+  "provider"` (plus `providerName` for the latter); broken `onError`
+  handlers are swallowed-and-warned, never crash the call; existing
+  per-provider `console.warn` reporting is unchanged, `onError` is
+  additive. Shipped six opt-in built-ins (never auto-enabled):
+  `redactMiddleware`, `samplingMiddleware` (global pre-dispatch drop via
+  `src/routing.ts`'s existing `isSampledIn` — distinct from and
+  composable with Phase 7's per-provider `ProviderEntry.sampling`),
+  `loggingMiddleware`, `enrichmentMiddleware`, `versionMiddleware`,
+  `timingMiddleware`. Shipped `examples/middleware/` (pipeline
+  composition/ordering/error-handling demo + a sampling-layers demo).
+  Per policy, this phase's issue files stay in
+  `plan/phase-8-middleware/` permanently.
