@@ -8,7 +8,8 @@
   "workspaces": [
     "packages/*",
     "examples/core/*",
-    "examples/providers/*"
+    "examples/providers/*",
+    "examples/middleware/*"
   ],
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",

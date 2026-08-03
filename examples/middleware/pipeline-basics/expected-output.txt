@@ -1,0 +1,76 @@
+This is the literal console output produced by `bun run index.ts` (stdout and
+stderr combined -- `console.warn` writes to stderr, everything else to
+stdout). Unlike `examples/providers/multi-provider-routing`, nothing in this
+example depends on a randomly generated value: every line below is exactly
+reproducible on every run.
+
+=== Scenario 1: basic usage, composition, and execution order ("Checkout Started") ===
+typetrack: [before] "Checkout Started" {"email":"jane.doe@example.com","cartValue":89.5,"itemCount":2}
+[before] trace:start "Checkout Started"
+[before] trace:end "Checkout Started"
+[provider] checkout-events-warehouse received "Checkout Started" {"properties":{"email":"[REDACTED]","cartValue":89.5,"itemCount":2,"emailDomain":"example.com"},"metadata":{"appVersion":"2.4.0","buildId":"b9137"}}
+typetrack: [after] "Checkout Started" dispatched
+[after] trace:start "Checkout Started"
+[after] trace:end "Checkout Started"
+
+=== Scenario 2: composition order matters (contrast pipeline, same event) ===
+typetrack: [before] "Checkout Started" {"email":"jane.doe@example.com","cartValue":89.5,"itemCount":2}
+[before] trace:start "Checkout Started"
+[before] trace:end "Checkout Started"
+[provider] checkout-events-warehouse received "Checkout Started" {"properties":{"email":"[REDACTED]","cartValue":89.5,"itemCount":2,"emailDomain":"unknown"},"metadata":{"appVersion":"2.4.0","buildId":"b9137"}}
+typetrack: [after] "Checkout Started" dispatched
+[after] trace:start "Checkout Started"
+[after] trace:end "Checkout Started"
+
+=== Scenario 3: middleware before() throws -> onError(source: "middleware") ===
+typetrack: [before] "Purchase Completed" {"value":-50,"currency":"USD"}
+[before] trace:start "Purchase Completed"
+typetrack: [error] "Purchase Completed" (source: middleware): order-value-guard: invalid order value -50 for "Purchase Completed"
+
+=== Scenario 4: provider dispatch rejects -> onError(source: "provider") ===
+typetrack: [before] "Payment Method Charged" {"value":149.99,"currency":"USD","method":"card"}
+[before] trace:start "Payment Method Charged"
+[before] trace:end "Payment Method Charged"
+[provider] checkout-events-warehouse: dispatch failed for "Payment Method Charged" (simulated downstream 500)
+typetrack: provider "checkout-events-warehouse" failed during "track()" -- Error: downstream API returned 500 for "Payment Method Charged"
+typetrack: [error] "Payment Method Charged" (source: provider, provider: checkout-events-warehouse): downstream API returned 500 for "Payment Method Charged"
+typetrack: [after] "Payment Method Charged" dispatched
+[after] trace:start "Payment Method Charged"
+[after] trace:end "Payment Method Charged"
+
+Notes on what's happening above, per scenario:
+- Scenario 1: `versionMiddleware` injects `appVersion`/`buildId` into
+  `event.metadata` (basic usage). `enrichmentMiddleware` (registered before
+  `redactMiddleware`) derives `emailDomain` from the still-unredacted `email`,
+  then `redactMiddleware` replaces `email`'s value with `"[REDACTED]"` --
+  composition, in the order that keeps `emailDomain` correct. `loggingMiddleware`
+  and the two `trace:*` tracer middlewares show the literal before(all)
+  -> dispatch -> after(all) sequence: every `[before]`/"typetrack: [before]"
+  line appears before the provider's "received" line, and every `[after]`/
+  "typetrack: [after]" line appears after it -- never interleaved with
+  dispatch itself.
+- Scenario 2: the exact same event, through a pipeline differing only in
+  swapping `enrichmentMiddleware` and `redactMiddleware`'s registration order
+  (`redactMiddleware` first). By the time enrichment's function runs, `email`
+  is already `"[REDACTED]"` (no `@`), so `emailDomain` falls back to
+  `"unknown"` instead of `"example.com"` -- the exact same input event
+  produces different delivered data purely because of registration order.
+- Scenario 3: `"Purchase Completed"` is tracked with an invalid `value`
+  (`-50`). `order-value-guard`'s `before()` throws; per the locked fan-out
+  rule, only middlewares that already ran (`logging`, `trace:start`, and
+  `order-value-guard` itself, in that registration order) are notified --
+  `loggingMiddleware`'s `onError` fires with `source: "middleware"` (no
+  `providerName`). Neither `trace:end` nor the provider ever see this event:
+  no "[before] trace:end", no "[provider] ... received", no "[after] ..." at
+  all for this call -- the chain stopped dead at the throwing middleware.
+- Scenario 4: `"Payment Method Charged"` passes every `before()` (its `value`
+  is valid), so the full before-chain and dispatch run -- but this pipeline's
+  provider is configured to reject `track()` calls for this exact event name,
+  simulating a downstream outage. Core's own `console.warn` fires first
+  (`typetrack: provider "checkout-events-warehouse" failed during "track()"...`),
+  then `loggingMiddleware`'s `onError` fires with `source: "provider"` and
+  `providerName: "checkout-events-warehouse"`. Crucially, the `after()` chain
+  still runs afterward (`typetrack: [after] ...`, `[after] trace:start`,
+  `[after] trace:end`) -- a provider rejection is swallowed inside dispatch,
+  so it never stops the after-chain the way a *middleware* throw stops the
+  before-chain.

@@ -1,0 +1,53 @@
+This is the literal console output produced by one run of `bun run index.ts`.
+
+Each simulated user gets a fresh, independently random `anonymousId` (via
+`crypto.randomUUID()`, one per `createAnalytics()` instance) -- which of the
+3 outcome categories ("globally-dropped" / "vendor-excluded" /
+"delivered-to-both") each individual user-N line lands in is RANDOM per run,
+and the exact tally at the bottom WILL DIFFER on your machine. What's NOT
+random: every user lands in *exactly one* of the 3 categories (never a 4th,
+impossible combination -- see `categorizeOutcome` in `index.ts`), and over
+many trials the tally trends toward roughly 30% "globally-dropped", 40%
+"vendor-excluded", 30% "delivered-to-both" (see the README's "Explanation"
+section for the math).
+
+Running 12 simulated users, each submitting one "Search Query Submitted" event...
+
+user-1: vendor-excluded
+user-2: vendor-excluded
+user-3: globally-dropped
+user-4: vendor-excluded
+user-5: vendor-excluded
+user-6: vendor-excluded
+user-7: vendor-excluded
+user-8: vendor-excluded
+user-9: delivered-to-both
+user-10: globally-dropped
+user-11: vendor-excluded
+user-12: vendor-excluded
+
+Tally across all simulated users:
+  globally-dropped (samplingMiddleware dropped it -- neither provider saw it): 2
+  vendor-excluded (passed the global gate, but ml-ranking-vendor's own ProviderEntry.sampling excluded it): 9
+  delivered-to-both (passed both gates): 1
+
+Notes on what's happening above, and why:
+- "globally-dropped": this user's anonymousId failed `samplingMiddleware`'s
+  0.7 rate gate, in `before()`, before dispatch ever began evaluating either
+  provider's routing. Neither `search-analytics-warehouse` (which has no
+  per-provider sampling at all) nor `ml-ranking-vendor` received the event --
+  a global middleware drop overrides every provider's own routing config,
+  unconditionally.
+- "vendor-excluded": this user's anonymousId passed the 0.7 global gate (so
+  dispatch proceeded), but failed `ml-ranking-vendor`'s own, stricter 0.3
+  `ProviderEntry.sampling` gate. `search-analytics-warehouse` (no
+  per-provider sampling) still received the event -- per-provider sampling
+  only ever excludes the one provider it's configured on, never any other
+  provider in the same list.
+- "delivered-to-both": this user's anonymousId passed both gates -- both
+  providers received the event.
+- The 4th mathematically possible boolean combination (vendor received it
+  but warehouse didn't) never appears, and can't: both gates key on the same
+  underlying `hashToUnitInterval(anonymousId)` value, and 0.3 is strictly
+  narrower than 0.7, so passing the stricter per-provider gate always implies
+  passing the looser global gate for the same anonymousId.
