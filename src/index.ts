@@ -1,3 +1,5 @@
+import { captureDynamicContext, captureStaticContext } from "./context";
+import type { ContextOptions } from "./context";
 import { runAfterChain, runBeforeChain, type Middleware } from "./middleware";
 import { noopProvider, type AnalyticsProvider, type ProviderCapabilities } from "./providers";
 import { normalizeProviders, shouldRouteToProvider, sortByPriority } from "./routing";
@@ -23,6 +25,7 @@ export type { AnalyticsProvider, ProviderCapabilities } from "./providers";
 export type { ProviderEntry, RouteMatcher } from "./routing";
 export type { CanonicalEvent, EventMap, InferEvents, SchemaMap, TrackOptions } from "./schema";
 export { EventValidationError } from "./schema";
+export type { CapturedContext, ContextOptions } from "./context";
 
 export interface CreateAnalyticsOptions<Events extends EventMap = EventMap> {
   // A single bare provider keeps exact Phase 6 passthrough behavior (no
@@ -50,6 +53,17 @@ export interface CreateAnalyticsOptions<Events extends EventMap = EventMap> {
   // decide this -- gating "am I in dev" is entirely the caller's
   // responsibility. See issue 006 for the full rationale.
   devServer?: boolean | { url?: string };
+  // Opt-in automatic environment/session context capture, merged onto
+  // `CanonicalEvent.context` for `track`/`page`/`screen` only (`identify`/
+  // `group`/`alias`/`reset`/`flush`/`destroy` have no `CanonicalEvent` and
+  // are unaffected). `true` is shorthand for `{ autoCapture: true }`.
+  // Omitted (the default), `false`, or `{ autoCapture: false }` are all
+  // equivalent to "off" -- zero behavior change from pre-Phase-9:
+  // `CanonicalEvent.context` remains exactly `verbOptions?.context`
+  // (`undefined` when not supplied), with no `Intl`/UA work performed at
+  // all. See `src/context.ts` for the captured shape
+  // (`CapturedContext`/`ContextOptions`).
+  context?: boolean | ContextOptions;
 }
 
 const DEFAULT_DEV_SERVER_URL = "http://127.0.0.1:4318/events";
@@ -60,6 +74,18 @@ function resolveDevServerUrl(
   if (!devServer) return undefined;
   if (devServer === true) return DEFAULT_DEV_SERVER_URL;
   return devServer.url ?? DEFAULT_DEV_SERVER_URL;
+}
+
+// Mirrors `resolveDevServerUrl`'s normalization pattern. Returns `undefined`
+// for any falsy input (including `{ autoCapture: false }`) so the rest of
+// `createAnalytics()` has a single "off" signal to check (`staticContext ===
+// undefined`) rather than re-deriving this in multiple places.
+function resolveContextOptions(
+  context: CreateAnalyticsOptions["context"],
+): ContextOptions | undefined {
+  if (!context) return undefined;
+  if (context === true) return { autoCapture: true };
+  return context.autoCapture ? context : undefined;
 }
 
 // The five verbs whose behavior depends on whether the resolved provider
@@ -103,6 +129,17 @@ export function createAnalytics<Events extends EventMap = EventMap>(
   const onValidationError = options.onValidationError;
   const devServerUrl = resolveDevServerUrl(options.devServer);
 
+  // `undefined` here is this issue's single "auto-capture is off" signal --
+  // every call site below gates on `contextOptions`/`staticContext` being
+  // truthy before doing any work.
+  const contextOptions = resolveContextOptions(options.context);
+  // Captured exactly once, at construction time, only when auto-capture is
+  // on -- never re-invoked per call (that's `captureDynamicContext`'s job,
+  // below). Left `undefined` (not even attempted) when auto-capture is off,
+  // per this issue's hot-path/back-compat requirement: no `Intl`/UA work at
+  // all for apps that never opted in.
+  const staticContext = contextOptions ? captureStaticContext() : undefined;
+
   // Identity/session state now lives in core, generated once at
   // construction, in-memory only -- no persistence across process restarts.
   // Adapters no longer generate or own any of this. One set of identity
@@ -110,6 +147,12 @@ export function createAnalytics<Events extends EventMap = EventMap>(
   let anonymousId = crypto.randomUUID();
   let sessionId = crypto.randomUUID();
   let userId: string | undefined;
+
+  // Session bookkeeping (`context.session`, additive to `sessionId` --
+  // Phase 9). Cheap to initialize unconditionally (`Date.now()`/`0`), but
+  // only ever read/merged into an event's `context` when auto-capture is on.
+  let sessionStartedAt = Date.now();
+  let sessionEventCount = 0;
 
   // Backs the one-warning-per-`${provider.name}:${capability}` policy below.
   // A single `Set<string>` closure variable naturally provides "per-provider"
@@ -267,6 +310,47 @@ export function createAnalytics<Events extends EventMap = EventMap>(
     return reasons;
   }
 
+  // Shared by `buildEvent()` (`page`/`screen`) and `track()`'s inline
+  // canonical-event construction -- both call sites need identical merge
+  // logic, so it's factored into this one closure function rather than
+  // duplicated inline in two places. Needs access to `staticContext`/
+  // `contextOptions`/`sessionStartedAt`/`sessionEventCount` closure state,
+  // so it lives here rather than as a standalone pure export the way
+  // `src/context.ts`'s functions are.
+  //
+  // When auto-capture is off (`staticContext` is `undefined`): behavior is
+  // byte-for-byte unchanged from pre-Phase-9 -- returns exactly
+  // `verbOptions?.context`, no new object allocation, no session-count
+  // increment.
+  //
+  // When auto-capture is on: increments `sessionEventCount`, captures fresh
+  // dynamic context, and shallow-merges `{ ...staticContext, ...dynamicContext,
+  // session: {...}, ...verbOptions?.context }` -- the caller's `context` is
+  // spread last and wins on key collision (not deep-merged: a caller-supplied
+  // key fully overwrites the auto-captured value for that key).
+  function resolveEventContext(verbOptions: TrackOptions | undefined): Record<string, unknown> | undefined {
+    if (!staticContext) {
+      return verbOptions?.context;
+    }
+
+    sessionEventCount += 1;
+    const dynamicContext = captureDynamicContext(contextOptions);
+    const durationMs = Date.now() - sessionStartedAt;
+
+    const merged: Record<string, unknown> = {
+      ...staticContext,
+      ...dynamicContext,
+      session: {
+        startedAt: sessionStartedAt,
+        eventCount: sessionEventCount,
+        durationMs,
+      },
+      ...verbOptions?.context,
+    };
+
+    return Object.keys(merged).length > 0 ? merged : undefined;
+  }
+
   function buildEvent(
     name: string | undefined,
     props: Record<string, unknown> | undefined,
@@ -279,7 +363,7 @@ export function createAnalytics<Events extends EventMap = EventMap>(
       anonymousId,
       userId,
       sessionId,
-      context: verbOptions?.context,
+      context: resolveEventContext(verbOptions),
       metadata: verbOptions?.metadata,
     };
   }
@@ -383,7 +467,7 @@ export function createAnalytics<Events extends EventMap = EventMap>(
         anonymousId,
         userId,
         sessionId,
-        context: trackOptions?.context,
+        context: resolveEventContext(trackOptions),
         metadata: trackOptions?.metadata,
       };
 
@@ -518,6 +602,10 @@ export function createAnalytics<Events extends EventMap = EventMap>(
       anonymousId = crypto.randomUUID();
       sessionId = crypto.randomUUID();
       userId = undefined;
+      // A fresh session context starts counting from zero again, consistent
+      // with `sessionId` itself being reassigned above.
+      sessionStartedAt = Date.now();
+      sessionEventCount = 0;
 
       if (!normalized.isMulti) {
         return normalized.entries[0]!.provider.reset?.();
