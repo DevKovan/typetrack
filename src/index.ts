@@ -31,6 +31,11 @@ export { isBrowserEnvironment } from "./context";
 export type { Plugin } from "./plugins";
 export { autoPage, dispatchPageView } from "./plugins/autoPage";
 export type { PageViewArgs, AutoPageOptions } from "./plugins/autoPage";
+export { autoClicks } from "./plugins/autoClicks";
+export type { AutoClicksOptions } from "./plugins/autoClicks";
+export { autoScroll } from "./plugins/autoScroll";
+export type { AutoScrollOptions } from "./plugins/autoScroll";
+export { autoVisibility } from "./plugins/autoVisibility";
 
 export interface CreateAnalyticsOptions<Events extends EventMap = EventMap> {
   // A single bare provider keeps exact Phase 6 passthrough behavior (no
