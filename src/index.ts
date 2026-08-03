@@ -6,6 +6,10 @@ import { EventValidationError } from "./schema";
 import type { CanonicalEvent, EventMap, SchemaMap, TrackArgs, TrackOptions } from "./schema";
 
 export type { Middleware } from "./middleware";
+export { redactMiddleware } from "./middleware/redact";
+export type { RedactOptions } from "./middleware/redact";
+export { samplingMiddleware } from "./middleware/sampling";
+export type { SamplingOptions } from "./middleware/sampling";
 export { noopProvider } from "./providers";
 export type { AnalyticsProvider, ProviderCapabilities } from "./providers";
 export type { ProviderEntry, RouteMatcher } from "./routing";
