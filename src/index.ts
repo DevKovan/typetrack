@@ -1,6 +1,7 @@
 import { captureDynamicContext, captureStaticContext } from "./context";
 import type { ContextOptions } from "./context";
 import { runAfterChain, runBeforeChain, type Middleware } from "./middleware";
+import type { Plugin } from "./plugins";
 import { noopProvider, type AnalyticsProvider, type ProviderCapabilities } from "./providers";
 import { normalizeProviders, shouldRouteToProvider, sortByPriority } from "./routing";
 import type { ProviderEntry } from "./routing";
@@ -26,6 +27,8 @@ export type { ProviderEntry, RouteMatcher } from "./routing";
 export type { CanonicalEvent, EventMap, InferEvents, SchemaMap, TrackOptions } from "./schema";
 export { EventValidationError } from "./schema";
 export type { CapturedContext, ContextOptions } from "./context";
+export { isBrowserEnvironment } from "./context";
+export type { Plugin } from "./plugins";
 
 export interface CreateAnalyticsOptions<Events extends EventMap = EventMap> {
   // A single bare provider keeps exact Phase 6 passthrough behavior (no
@@ -64,6 +67,14 @@ export interface CreateAnalyticsOptions<Events extends EventMap = EventMap> {
   // all. See `src/context.ts` for the captured shape
   // (`CapturedContext`/`ContextOptions`).
   context?: boolean | ContextOptions;
+  // Plugins to auto-invoke once, in array order, at construction time --
+  // distinct from `.use()` (Phase 8 middleware, which transforms/observes
+  // events already in flight; plugins instead originate new track calls of
+  // their own). Each plugin is called with the fully-constructed `Analytics`
+  // instance; its optional returned teardown function (if any) is invoked by
+  // `destroy()`, before the existing provider flush+destroy logic. See
+  // `src/plugins.ts` for the full `Plugin` contract.
+  plugins?: Plugin[];
 }
 
 const DEFAULT_DEV_SERVER_URL = "http://127.0.0.1:4318/events";
@@ -425,7 +436,7 @@ export function createAnalytics<Events extends EventMap = EventMap>(
     })();
   }
 
-  return {
+  const analytics: Analytics<Events> = {
     track(event, ...args) {
       const [rawPayload, trackOptions] = args as [unknown, TrackOptions | undefined];
 
@@ -630,6 +641,22 @@ export function createAnalytics<Events extends EventMap = EventMap>(
       }
     },
     async destroy() {
+      // Plugin teardowns run first, in registration order, before any
+      // provider flush/destroy work begins -- stops plugins from generating
+      // new track()/page() calls while providers are mid-teardown. A
+      // throwing teardown is swallowed and reported via console.warn (same
+      // pattern as the rest of this function's swallow-and-warn
+      // conventions); it does not join the AggregateError below, and never
+      // prevents the remaining teardowns or the provider flush/destroy
+      // phases from running.
+      for (const teardown of pluginTeardowns) {
+        try {
+          teardown();
+        } catch (error) {
+          console.warn(`typetrack: a plugin's teardown threw during destroy() -- ${error}`);
+        }
+      }
+
       // Drain first, then tear down, per provider. Not capability-gated.
       if (!normalized.isMulti) {
         await normalized.entries[0]!.provider.flush?.();
@@ -654,4 +681,26 @@ export function createAnalytics<Events extends EventMap = EventMap>(
       middlewares.push(middleware);
     },
   };
+
+  // Plugins are invoked once, in array order, here -- after `analytics` is
+  // fully constructed (every verb is callable from inside a plugin at setup
+  // time) but before `createAnalytics()` returns. A throwing plugin setup is
+  // swallowed and reported via `console.warn` (never propagates out of
+  // `createAnalytics()`, never blocks a later plugin in the array from
+  // running) -- mirrors the "never throw" contract established by Phase 9's
+  // context capture and Phase 8's middleware `onError` handling.
+  // `plugin.name` relies on `Function.prototype.name` -- see `src/plugins.ts`
+  // for why every shipped plugin factory must return a named function
+  // expression, not an anonymous arrow, for this warning to be legible.
+  const pluginTeardowns: (() => void)[] = [];
+  for (const plugin of options.plugins ?? []) {
+    try {
+      const teardown = plugin(analytics);
+      if (teardown) pluginTeardowns.push(teardown);
+    } catch (error) {
+      console.warn(`typetrack: plugin "${plugin.name || "<anonymous>"}" threw during setup -- ${error}`);
+    }
+  }
+
+  return analytics;
 }
