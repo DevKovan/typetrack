@@ -98,3 +98,24 @@ are the record, this is just a trail of what happened when.
   composition/ordering/error-handling demo + a sampling-layers demo).
   Per policy, this phase's issue files stay in
   `plan/phase-8-middleware/` permanently.
+- Phase 9 (context auto-capture): `createAnalytics({ context })` (`src/context.ts`
+  + wiring in `src/index.ts`) — opt-in only (`context` omitted/`false` is
+  byte-for-byte unchanged from pre-Phase-9; `context: true` shorthand for
+  `{ autoCapture: true }`). On `track`/`page`/`screen`, merges auto-captured
+  fields into `CanonicalEvent.context` via a shallow merge where
+  caller-supplied `TrackOptions.context` always wins per-key on collision.
+  Static fields (`locale`, `timezone` via `Intl`; `browser`/`os`/`device` via
+  a small hand-rolled, zero-dependency UA parser) are captured once at
+  construction; dynamic fields (`viewport`, `referrer`, UTM-derived
+  `campaign`, an app-supplied `featureFlags` getter mirrored verbatim — no
+  flag evaluation of typetrack's own) are captured fresh per call.
+  `typeof window !== "undefined" && typeof navigator !== "undefined"` gates
+  every browser-only field; outside a browser those keys are omitted
+  entirely (never `undefined`), while `locale`/`timezone` still populate
+  everywhere (Node/Bun/edge included) — core never throws server-side.
+  Additive `context.session` (`startedAt`/`eventCount`/`durationMs`, core
+  bookkeeping reinitialized by `reset()`) is distinct from and does not
+  duplicate the existing top-level `sessionId`. Shipped
+  `examples/core/context-capture/` (stubbed browser page-load demo +
+  Node-side safe-no-op fallback). Per policy, this phase's issue files stay
+  in `plan/phase-9-context/` permanently.
