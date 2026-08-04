@@ -1155,3 +1155,134 @@ describe("createAnalytics() provider-aware consent gating (ProviderEntry.require
     expect(provider.track).toHaveBeenCalledTimes(1);
   });
 });
+
+// Phase 11 issue 006: `analytics.cookieless` mirrors the constructor option
+// verbatim, and this is a regression test locking in core's EXISTING
+// (unchanged by this issue) contract that it never touches any client-side
+// storage API itself, regardless of `cookieless`'s value -- `anonymousId`/
+// `sessionId` have been in-memory-only since Phase 6. `localStorage`/
+// `sessionStorage`/`document.cookie` are stubbed with spies (this package's
+// `tsconfig.json` has no `"dom"` in `lib`, so these aren't ambient types --
+// same `Object.defineProperty(globalThis, ...)` technique used throughout
+// `src/plugins/autoUTM.test.ts`) and asserted untouched after exercising
+// every verb. Uses the default `noopProvider` (no `provider` option) so the
+// assertion is purely about core's own behavior, independent of whatever a
+// real provider adapter might do.
+describe("createAnalytics({ cookieless }) (Phase 11 issue 006)", () => {
+  afterEach(() => {
+    for (const key of ["localStorage", "sessionStorage", "document"] as const) {
+      delete (globalThis as Record<string, unknown>)[key];
+    }
+  });
+
+  function stubStorageSpies(): {
+    localStorageGetItem: ReturnType<typeof mock>;
+    localStorageSetItem: ReturnType<typeof mock>;
+    sessionStorageGetItem: ReturnType<typeof mock>;
+    sessionStorageSetItem: ReturnType<typeof mock>;
+    cookieGet: ReturnType<typeof mock>;
+    cookieSet: ReturnType<typeof mock>;
+  } {
+    const localStorageGetItem = mock((_key: string) => null as string | null);
+    const localStorageSetItem = mock((_key: string, _value: string) => {});
+    const sessionStorageGetItem = mock((_key: string) => null as string | null);
+    const sessionStorageSetItem = mock((_key: string, _value: string) => {});
+    const cookieGet = mock(() => "");
+    const cookieSet = mock((_value: string) => {});
+
+    Object.defineProperty(globalThis, "localStorage", {
+      value: { getItem: localStorageGetItem, setItem: localStorageSetItem },
+      configurable: true,
+      writable: true,
+    });
+    Object.defineProperty(globalThis, "sessionStorage", {
+      value: { getItem: sessionStorageGetItem, setItem: sessionStorageSetItem },
+      configurable: true,
+      writable: true,
+    });
+    Object.defineProperty(globalThis, "document", {
+      value: {
+        get cookie() {
+          cookieGet();
+          return "";
+        },
+        set cookie(value: string) {
+          cookieSet(value);
+        },
+      },
+      configurable: true,
+      writable: true,
+    });
+
+    return {
+      localStorageGetItem,
+      localStorageSetItem,
+      sessionStorageGetItem,
+      sessionStorageSetItem,
+      cookieGet,
+      cookieSet,
+    };
+  }
+
+  // Exercises every verb on `Analytics` -- track/page/screen/identify/
+  // group/alias/reset/flush/destroy, per the issue's acceptance criteria.
+  async function exerciseEveryVerb(analytics: Analytics<any>): Promise<void> {
+    await analytics.track("evt", { prop: 1 });
+    await analytics.page("home");
+    await analytics.screen("main");
+    await analytics.identify("user_1", { plan: "pro" });
+    await analytics.group("group_1", { name: "acme" });
+    await analytics.alias("user_2", "user_1");
+    await analytics.reset();
+    await analytics.flush();
+    await analytics.destroy();
+  }
+
+  it("cookieless: true -- analytics.cookieless is true, and core never calls localStorage/sessionStorage/document.cookie across every verb", async () => {
+    const spies = stubStorageSpies();
+    const analytics = createAnalytics({ cookieless: true });
+
+    expect(analytics.cookieless).toBe(true);
+
+    await exerciseEveryVerb(analytics);
+
+    expect(spies.localStorageGetItem).not.toHaveBeenCalled();
+    expect(spies.localStorageSetItem).not.toHaveBeenCalled();
+    expect(spies.sessionStorageGetItem).not.toHaveBeenCalled();
+    expect(spies.sessionStorageSetItem).not.toHaveBeenCalled();
+    expect(spies.cookieGet).not.toHaveBeenCalled();
+    expect(spies.cookieSet).not.toHaveBeenCalled();
+  });
+
+  it("cookieless: false (explicit) -- analytics.cookieless is false, and core still never calls localStorage/sessionStorage/document.cookie across every verb (status quo, unchanged by this issue)", async () => {
+    const spies = stubStorageSpies();
+    const analytics = createAnalytics({ cookieless: false });
+
+    expect(analytics.cookieless).toBe(false);
+
+    await exerciseEveryVerb(analytics);
+
+    expect(spies.localStorageGetItem).not.toHaveBeenCalled();
+    expect(spies.localStorageSetItem).not.toHaveBeenCalled();
+    expect(spies.sessionStorageGetItem).not.toHaveBeenCalled();
+    expect(spies.sessionStorageSetItem).not.toHaveBeenCalled();
+    expect(spies.cookieGet).not.toHaveBeenCalled();
+    expect(spies.cookieSet).not.toHaveBeenCalled();
+  });
+
+  it("cookieless omitted (default) -- analytics.cookieless is false, and core still never calls localStorage/sessionStorage/document.cookie across every verb", async () => {
+    const spies = stubStorageSpies();
+    const analytics = createAnalytics();
+
+    expect(analytics.cookieless).toBe(false);
+
+    await exerciseEveryVerb(analytics);
+
+    expect(spies.localStorageGetItem).not.toHaveBeenCalled();
+    expect(spies.localStorageSetItem).not.toHaveBeenCalled();
+    expect(spies.sessionStorageGetItem).not.toHaveBeenCalled();
+    expect(spies.sessionStorageSetItem).not.toHaveBeenCalled();
+    expect(spies.cookieGet).not.toHaveBeenCalled();
+    expect(spies.cookieSet).not.toHaveBeenCalled();
+  });
+});

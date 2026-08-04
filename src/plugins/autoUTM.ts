@@ -13,6 +13,20 @@
 // Reuses `src/context.ts`'s `parseCampaign` (now exported for this purpose)
 // rather than re-implementing the same 5-UTM-param mapping a second time.
 //
+// Cookieless mode (Phase 11 issue 006): when the live `Analytics` instance
+// this plugin is set up against has `cookieless: true` (i.e.
+// `createAnalytics({ cookieless: true, plugins: [autoUTM()] })`), this
+// plugin skips its own `sessionStorage` persistence entirely -- no
+// `sessionStorage.setItem` (UTM-params-present branch) and no
+// `sessionStorage.getItem` (UTM-params-absent branch, whose read result is
+// unused either way -- see below) are ever called. The "Campaign Landing"
+// `track()` call still fires exactly as before whenever UTM params are
+// present in the current URL. The net effect: no first-touch dedup across
+// page loads -- every page load with UTM params in its URL fires its own
+// "Campaign Landing" event, and a later page load in the same session with
+// no UTM params of its own simply doesn't fire the event (same as today's
+// "nothing persisted" case, just without ever having persisted anything).
+//
 // This package's root `tsconfig.json` deliberately has no `"dom"` in `lib`
 // (see `src/context.ts`'s header comment) -- `location`/`sessionStorage`
 // aren't ambient types here either. The minimal ad-hoc shapes below are read
@@ -99,6 +113,15 @@ function persistCampaign(
 //     new landing, just a later page in the same session with no UTM
 //     params of its own). If nothing is persisted either, does nothing
 //     (this is a session with no campaign attribution at all).
+//   - Cookieless mode (`analytics.cookieless === true`, Phase 11 issue 006):
+//     the `persistCampaign()` call above is skipped entirely (the landing
+//     `track()` call still fires) -- see this file's header comment. The
+//     `readPersistedCampaign()` call in the UTM-params-absent branch is also
+//     skipped: its boolean result was already unused by the caller even
+//     outside cookieless mode (see that function's own doc comment) -- under
+//     `cookieless: true` there is nothing persisted to read in the first
+//     place, so the dead read is dropped rather than left in place to run
+//     for no effect.
 // Never throws, regardless of sessionStorage availability or malformed
 // stored data.
 export function autoUTM(options?: AutoUTMOptions): Plugin {
@@ -109,6 +132,7 @@ export function autoUTM(options?: AutoUTMOptions): Plugin {
 
     const g = browserGlobal();
     const storage = g.sessionStorage;
+    const cookieless = analytics.cookieless;
 
     let campaign: ReturnType<typeof parseCampaign>;
     try {
@@ -118,7 +142,9 @@ export function autoUTM(options?: AutoUTMOptions): Plugin {
     }
 
     if (campaign) {
-      persistCampaign(storage, storageKey, campaign);
+      if (!cookieless) {
+        persistCampaign(storage, storageKey, campaign);
+      }
       analytics.track("Campaign Landing", campaign);
       return undefined;
     }
@@ -126,8 +152,13 @@ export function autoUTM(options?: AutoUTMOptions): Plugin {
     // No UTM params in the current URL -- a prior persisted value means
     // this is a later page in the same session, not a new landing; no
     // persisted value means this session has no campaign attribution at
-    // all. Either way, nothing further happens.
-    readPersistedCampaign(storage, storageKey);
+    // all. Either way, nothing further happens. Under `cookieless: true`
+    // there's nothing persisted to check for (persistence itself is
+    // skipped above), so the read is skipped too -- see this function's
+    // doc comment above.
+    if (!cookieless) {
+      readPersistedCampaign(storage, storageKey);
+    }
     return undefined;
   };
 }

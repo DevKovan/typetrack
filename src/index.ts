@@ -114,6 +114,17 @@ export interface CreateAnalyticsOptions<Events extends EventMap = EventMap> {
   // identified tracking at runtime should construct a new `Analytics`
   // instance instead (see `plan/phase-11-privacy-consent/004-anonymous-mode.md`).
   anonymousMode?: boolean;
+  // Phase 11 issue 006: opt-in, construction-time-only declaration that this
+  // instance never persists any client-side identifier (no
+  // localStorage/sessionStorage/cookie writes). Core itself already never
+  // does this regardless of this flag -- `anonymousId`/`sessionId` are
+  // in-memory-only since Phase 6 -- so this option's only *behavioral*
+  // effect today is on plugins that read `analytics.cookieless` themselves
+  // (starting with `autoUTM`, which skips its own `sessionStorage`
+  // first-touch-campaign persistence when this is `true`). Defaults to
+  // `false` (omitted is zero behavior change). See
+  // `plan/phase-11-privacy-consent/006-cookieless-mode-and-autoutm.md`.
+  cookieless?: boolean;
 }
 
 // The `analytics.consent` runtime surface -- always present on `Analytics`,
@@ -193,6 +204,14 @@ export interface Analytics<Events extends EventMap = EventMap> {
   enable(): void;
   disable(): void;
   isEnabled(): boolean;
+  // Phase 11 issue 006: mirrors `CreateAnalyticsOptions.cookieless` exactly
+  // (`analytics.cookieless === (options.cookieless ?? false)`) -- a plain
+  // readonly property, not a method, since it never changes after
+  // construction (no runtime toggle exists, matching `anonymousMode`
+  // above). Plugins (e.g. `autoUTM`) read this off the live `Analytics`
+  // instance they're already handed at setup time to decide whether to
+  // skip their own storage writes.
+  readonly cookieless: boolean;
 }
 
 export function createAnalytics<Events extends EventMap = EventMap>(
@@ -246,6 +265,13 @@ export function createAnalytics<Events extends EventMap = EventMap>(
   // instance-level policy choice, not a per-provider capability gap) -- one
   // warning per verb (`identify`/`alias`), ever, for this instance.
   const warnedAnonymousMode = new Set<"identify" | "alias">();
+
+  // Phase 11 issue 006: immutable for the instance's lifetime -- captured
+  // once here, never reassigned (no runtime toggle method exists on
+  // `Analytics`, matching `anonymousMode` above). Exposed verbatim as
+  // `analytics.cookieless` below; core itself never reads this beyond that
+  // exposure -- see `Analytics.cookieless`'s doc comment for why.
+  const cookieless = options.cookieless ?? false;
 
   // Registered middlewares, in registration order. Populated by `use()`
   // below and consumed by `track`/`page`/`screen` via `runThroughMiddleware`
@@ -910,6 +936,9 @@ export function createAnalytics<Events extends EventMap = EventMap>(
     isEnabled() {
       return enabled;
     },
+    // Phase 11 issue 006: plain readonly property, set once here and never
+    // reassigned -- see `Analytics.cookieless`'s doc comment.
+    cookieless,
   };
 
   // Plugins are invoked once, in array order, here -- after `analytics` is

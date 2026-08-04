@@ -149,6 +149,43 @@ describe("autoUTM() integration", () => {
     await expect(analytics.destroy()).resolves.toBeUndefined();
   });
 
+  it("cookieless: true -- fires the Campaign Landing track call via a real createAnalytics() round trip, but never persists to sessionStorage", async () => {
+    const sessionStorage = makeSessionStorage();
+    stubBrowserGlobals("?utm_source=newsletter&utm_medium=email&utm_campaign=launch", sessionStorage);
+    const { provider, trackEvents } = makeRecordingProvider();
+
+    const analytics = createAnalytics({ provider, cookieless: true, plugins: [autoUTM()] });
+
+    expect(analytics.cookieless).toBe(true);
+    expect(trackEvents.length).toBe(1);
+    expect(trackEvents[0]!.name).toBe("Campaign Landing");
+    expect(trackEvents[0]!.properties).toEqual({
+      source: "newsletter",
+      medium: "email",
+      campaign: "launch",
+    });
+    expect(Object.keys(sessionStorage.data)).toHaveLength(0);
+
+    await analytics.destroy();
+  });
+
+  it("cookieless: true, no UTM params in the URL: no Campaign Landing event fires, nothing is read from or written to sessionStorage", async () => {
+    const sessionStorage = makeSessionStorage();
+    sessionStorage.setItem("typetrack_first_touch_campaign", JSON.stringify({ source: "newsletter" }));
+    stubBrowserGlobals("", sessionStorage);
+    const { provider, trackEvents } = makeRecordingProvider();
+
+    const analytics = createAnalytics({ provider, cookieless: true, plugins: [autoUTM()] });
+
+    expect(trackEvents.length).toBe(0);
+    // The pre-existing persisted value (simulating a prior, non-cookieless
+    // session) is left untouched -- cookieless mode never reads or writes
+    // sessionStorage, it just doesn't interact with it either way.
+    expect(sessionStorage.data["typetrack_first_touch_campaign"]).toBe(JSON.stringify({ source: "newsletter" }));
+
+    await analytics.destroy();
+  });
+
   it("a throwing sessionStorage still fires the landing event through a real createAnalytics() round trip, without crashing setup", async () => {
     const throwingStorage = {
       getItem: () => {

@@ -64,10 +64,12 @@ afterEach(() => {
 });
 
 // Hand-written stub satisfying `Plugin`'s `Analytics<any>` setup parameter --
-// only `.track` is needed.
-function makeTrackStub(): { track: ReturnType<typeof mock>; instance: Analytics<any> } {
+// only `.track` (and, since Phase 11 issue 006, `.cookieless`) is needed.
+// `cookieless` defaults to `false`, matching `createAnalytics()`'s own
+// default, so every pre-issue-006 call site below is unaffected.
+function makeTrackStub(cookieless = false): { track: ReturnType<typeof mock>; instance: Analytics<any> } {
   const track = mock(() => {});
-  return { track, instance: { track } as unknown as Analytics<any> };
+  return { track, instance: { track, cookieless } as unknown as Analytics<any> };
 }
 
 describe("autoUTM()", () => {
@@ -169,5 +171,55 @@ describe("autoUTM()", () => {
 
     expect(() => autoUTM()(instance)).not.toThrow();
     expect(track).toHaveBeenCalledTimes(1);
+  });
+
+  describe("cookieless mode (Phase 11 issue 006)", () => {
+    it("cookieless: true, UTM params present: fires the Campaign Landing track call but never calls sessionStorage.setItem", () => {
+      const { storage, data } = makeWorkingStorage();
+      const setItem = mock(storage.setItem);
+      stubBrowserGlobals("?utm_source=newsletter&utm_medium=email&utm_campaign=launch", {
+        ...storage,
+        setItem,
+      });
+      const { track, instance } = makeTrackStub(true);
+
+      const teardown = autoUTM()(instance);
+
+      expect(track).toHaveBeenCalledTimes(1);
+      expect(track).toHaveBeenCalledWith("Campaign Landing", {
+        source: "newsletter",
+        medium: "email",
+        campaign: "launch",
+      });
+      expect(setItem).not.toHaveBeenCalled();
+      expect(Object.keys(data)).toHaveLength(0);
+      expect(teardown).toBeUndefined();
+    });
+
+    it("cookieless: true, no UTM params in the current URL: no Campaign Landing event fires, and sessionStorage.getItem is never called", () => {
+      const previouslyPersisted = JSON.stringify({ source: "newsletter" });
+      const { storage } = makeWorkingStorage({
+        typetrack_first_touch_campaign: previouslyPersisted,
+      });
+      const getItem = mock(storage.getItem);
+      stubBrowserGlobals("", { ...storage, getItem });
+      const { track, instance } = makeTrackStub(true);
+
+      autoUTM()(instance);
+
+      expect(track).not.toHaveBeenCalled();
+      expect(getItem).not.toHaveBeenCalled();
+    });
+
+    it("cookieless: false (explicit): zero behavior change -- still persists to sessionStorage exactly as the omitted-cookieless case does", () => {
+      const { storage, data } = makeWorkingStorage();
+      stubBrowserGlobals("?utm_source=newsletter", storage);
+      const { track, instance } = makeTrackStub(false);
+
+      autoUTM()(instance);
+
+      expect(track).toHaveBeenCalledTimes(1);
+      expect(JSON.parse(data["typetrack_first_touch_campaign"]!)).toEqual({ source: "newsletter" });
+    });
   });
 });
