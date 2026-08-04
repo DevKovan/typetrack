@@ -1,5 +1,7 @@
 import { captureDynamicContext, captureStaticContext } from "./context";
 import type { ContextOptions } from "./context";
+import { hasConsent, isConsentedForCategories, resolveDefaultState } from "./consent";
+import type { ConsentCategory, ConsentOptions, ConsentState } from "./consent";
 import { runAfterChain, runBeforeChain, type Middleware } from "./middleware";
 import type { Plugin } from "./plugins";
 import { noopProvider, type AnalyticsProvider, type ProviderCapabilities } from "./providers";
@@ -26,6 +28,7 @@ export type { AnalyticsProvider, ProviderCapabilities } from "./providers";
 export type { ProviderEntry, RouteMatcher } from "./routing";
 export type { CanonicalEvent, EventMap, InferEvents, SchemaMap, TrackOptions } from "./schema";
 export { EventValidationError } from "./schema";
+export type { ConsentCategory, ConsentDecision, ConsentOptions, ConsentState } from "./consent";
 export type { CapturedContext, ContextOptions } from "./context";
 export { isBrowserEnvironment } from "./context";
 export type { Plugin } from "./plugins";
@@ -89,6 +92,31 @@ export interface CreateAnalyticsOptions<Events extends EventMap = EventMap> {
   // `destroy()`, before the existing provider flush+destroy logic. See
   // `src/plugins.ts` for the full `Plugin` contract.
   plugins?: Plugin[];
+  // Phase 11 issue 002: opt-in consent gating for the six data-carrying
+  // verbs (`track`/`page`/`screen`/`identify`/`group`/`alias`). Omitted
+  // entirely (the default) is zero behavior change from pre-Phase-11: no
+  // gating is performed on any verb (there's no `requiredCategories` to
+  // check against), though `analytics.consent`'s `grant()`/`deny()`/`get()`
+  // still work and track state regardless -- they simply have no gating
+  // effect on their own without `requiredCategories` configured here. See
+  // `src/consent.ts` for the full `ConsentOptions` shape.
+  consent?: ConsentOptions;
+}
+
+// The `analytics.consent` runtime surface -- always present on `Analytics`,
+// independent of whether the `consent` construction option was supplied. An
+// app can call `analytics.consent.grant("analytics")` even if it never
+// configured `requiredCategories` -- the grant is recorded (visible via
+// `.get()`/`.hasConsent()`) but has no gating effect on its own; issue 005's
+// per-provider `requiresConsent` can still reference it.
+export interface ConsentController {
+  // Zero-argument calls are a no-op.
+  grant(...categories: ConsentCategory[]): void;
+  deny(...categories: ConsentCategory[]): void;
+  hasConsent(category: ConsentCategory): boolean;
+  // Returns a shallow-cloned snapshot (`{ ...consentState }`), not a live
+  // reference -- mutating the returned object never affects internal state.
+  get(): ConsentState;
 }
 
 const DEFAULT_DEV_SERVER_URL = "http://127.0.0.1:4318/events";
@@ -137,8 +165,14 @@ export interface Analytics<Events extends EventMap = EventMap> {
   // of this issue: registered middlewares are not yet consumed by
   // `track`/`page`/`screen` (issue 002 wires that in).
   use(middleware: Middleware): void;
-  // `enable()`/`disable()` (privacy/consent gating) are intentionally not
-  // part of this interface yet -- deferred to the Privacy/consent phase.
+  // Phase 11 issue 002: the consent runtime surface, always present
+  // (non-optional) regardless of whether the `consent` construction option
+  // was supplied. Gates `track`/`page`/`screen`/`identify`/`group`/`alias`
+  // globally when `requiredCategories` is configured -- see
+  // `ConsentController` and `isTrackingAllowed()` below.
+  // `enable()`/`disable()` (the separate kill-switch gate) are intentionally
+  // not part of this interface yet -- deferred to issue 003.
+  consent: ConsentController;
 }
 
 export function createAnalytics<Events extends EventMap = EventMap>(
@@ -189,6 +223,29 @@ export function createAnalytics<Events extends EventMap = EventMap>(
   // (this issue). `identify`/`group`/`alias`/`reset`/`flush`/`destroy` never
   // read this array -- no canonical event exists for those verbs.
   const middlewares: Middleware[] = [];
+
+  // Phase 11 issue 002: consent state, resolved/seeded once at construction.
+  // `defaultState` is inert/unreachable in practice when `options.consent`
+  // is `undefined` (the gate below is skipped entirely in that case) --
+  // kept only so the closure variable always has a value.
+  const defaultState = options.consent ? resolveDefaultState(options.consent) : "denied";
+  // Genuinely mutable, reassigned-in-place (not replaced) by
+  // `consent.grant()`/`.deny()` below -- never touched by `reset()`, since
+  // identity/session reset is independent of consent state (design decision
+  // 1, `plan/phase-11-privacy-consent/BRIEF.md`).
+  const consentState: ConsentState = { ...options.consent?.initialState };
+  const requiredCategories = options.consent?.requiredCategories;
+
+  // Shared gate for the six data-carrying verbs (`track`/`page`/`screen`/
+  // `identify`/`group`/`alias`) -- issue 003 extends this same function
+  // (adding the `enabled` kill-switch check), so gating logic is never
+  // duplicated per-verb. When `options.consent` was never supplied,
+  // `requiredCategories` is `undefined`, so `isConsentedForCategories`
+  // returns `true` vacuously -- zero gating effect, matching this phase's
+  // opt-in convention.
+  function isTrackingAllowed(): boolean {
+    return isConsentedForCategories(consentState, requiredCategories, defaultState);
+  }
 
   // Shared gate for the five capability-dependent verbs: returns `true` when
   // `entry.provider` both declares the capability and implements the
@@ -452,12 +509,22 @@ export function createAnalytics<Events extends EventMap = EventMap>(
 
   const analytics: Analytics<Events> = {
     track(event, ...args) {
+      // Phase 11 issue 002: consent gate, the very first statement --
+      // before anything else, including the dev-server-mirror `fetch()`
+      // call below. When blocked, returns `undefined` immediately,
+      // synchronously: no provider call, no middleware run, no dev-server
+      // mirror, no schema validation. This is a deliberate behavior change
+      // to the dev-server mirror's previously-unconditional timing (see
+      // issue 001/002) -- it now only fires once tracking is allowed.
+      if (!isTrackingAllowed()) return undefined;
+
       const [rawPayload, trackOptions] = args as [unknown, TrackOptions | undefined];
 
       // Fire-and-forget mirror to the dev server, dispatched with the raw,
       // unvalidated payload before schema validation runs below -- must fire
       // regardless of whether a schema exists, whether validation
-      // succeeds/fails, or whether `onValidationError` is set. Never
+      // succeeds/fails, or whether `onValidationError` is set (but only once
+      // the consent gate above has allowed this call through at all). Never
       // returned/awaited; any failure (rejected fetch, non-2xx, no listener)
       // is silently swallowed with no default logging.
       if (devServerUrl) {
@@ -524,6 +591,11 @@ export function createAnalytics<Events extends EventMap = EventMap>(
       });
     },
     identify(newUserId, traits) {
+      // Phase 11 issue 002: consent gate, the very first statement -- before
+      // even the `userId` reassignment below. When blocked, `userId` is left
+      // untouched and no provider call is made.
+      if (!isTrackingAllowed()) return undefined;
+
       // `identify()` is the only verb that updates core's current `userId`.
       userId = newUserId;
 
@@ -547,6 +619,9 @@ export function createAnalytics<Events extends EventMap = EventMap>(
       });
     },
     page(name, props, pageOptions) {
+      // Phase 11 issue 002: consent gate, the very first statement.
+      if (!isTrackingAllowed()) return undefined;
+
       const canonicalEvent = buildEvent(name, props, pageOptions);
 
       return runThroughMiddleware(canonicalEvent, (evt) => {
@@ -571,6 +646,9 @@ export function createAnalytics<Events extends EventMap = EventMap>(
       });
     },
     group(groupId, traits) {
+      // Phase 11 issue 002: consent gate, the very first statement.
+      if (!isTrackingAllowed()) return undefined;
+
       if (!normalized.isMulti) {
         const entry = normalized.entries[0]!;
         if (!isCapabilitySupported(entry, "group")) return;
@@ -583,6 +661,9 @@ export function createAnalytics<Events extends EventMap = EventMap>(
       });
     },
     alias(newUserId, previousUserId) {
+      // Phase 11 issue 002: consent gate, the very first statement.
+      if (!isTrackingAllowed()) return undefined;
+
       // Does not mutate core's stored `userId` -- only `identify()` does.
       if (!normalized.isMulti) {
         const entry = normalized.entries[0]!;
@@ -596,6 +677,9 @@ export function createAnalytics<Events extends EventMap = EventMap>(
       });
     },
     screen(name, props, screenOptions) {
+      // Phase 11 issue 002: consent gate, the very first statement.
+      if (!isTrackingAllowed()) return undefined;
+
       const canonicalEvent = buildEvent(name, props, screenOptions);
 
       return runThroughMiddleware(canonicalEvent, (evt) => {
@@ -623,7 +707,10 @@ export function createAnalytics<Events extends EventMap = EventMap>(
       // Eager, not lazy: identity is reassigned before any provider's
       // `reset?.()` is invoked. Not capability-gated -- this is a lifecycle
       // hook, not a data verb, and `ProviderCapabilities` has no `reset`
-      // field.
+      // field. Not consent-gated either -- `reset()` deliberately never
+      // touches `consentState`/`defaultState`/`requiredCategories`:
+      // identity/session reset is independent of consent state (Phase 11
+      // issue 002, design decision 1 in `plan/phase-11-privacy-consent/BRIEF.md`).
       anonymousId = crypto.randomUUID();
       sessionId = crypto.randomUUID();
       userId = undefined;
@@ -693,6 +780,27 @@ export function createAnalytics<Events extends EventMap = EventMap>(
     },
     use(middleware) {
       middlewares.push(middleware);
+    },
+    consent: {
+      grant(...categories) {
+        for (const category of categories) {
+          consentState[category] = "granted";
+        }
+      },
+      deny(...categories) {
+        for (const category of categories) {
+          consentState[category] = "denied";
+        }
+      },
+      hasConsent(category) {
+        return hasConsent(consentState, category, defaultState);
+      },
+      get() {
+        // Shallow-cloned snapshot -- mutating the returned object never
+        // affects internal state (see `ConsentController.get()`'s doc
+        // comment above).
+        return { ...consentState };
+      },
     },
   };
 

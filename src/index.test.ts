@@ -249,3 +249,308 @@ describe("createAnalytics() plugins (issue 001: registration + teardown mechanis
     expect(destroy).toHaveBeenCalledTimes(1);
   });
 });
+
+// Integration tests for Phase 11 issue 002: wiring `consent` into
+// `createAnalytics()`, the `analytics.consent` runtime API, and the global
+// gate applied to the six data-carrying verbs. Issue 001's pure
+// types/logic already have their own unit tests (`src/consent.test.ts`) --
+// this describe block covers the wiring only, per the issue's "Test
+// requirements" ("no new unit tests beyond issue 001's").
+describe("createAnalytics({ consent }) (Phase 11 issue 002)", () => {
+  const originalFetch = globalThis.fetch;
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  type FetchFn = (url: string | URL | Request, init?: RequestInit) => Promise<Response>;
+
+  function stubFetch(impl: FetchFn) {
+    const fetchStub = mock<FetchFn>(impl);
+    globalThis.fetch = fetchStub as unknown as typeof fetch;
+    return fetchStub;
+  }
+
+  function spyProvider(name = "spy"): AnalyticsProvider & {
+    track: ReturnType<typeof mock>;
+    identify: ReturnType<typeof mock>;
+    page: ReturnType<typeof mock>;
+    group: ReturnType<typeof mock>;
+    alias: ReturnType<typeof mock>;
+    screen: ReturnType<typeof mock>;
+    reset: ReturnType<typeof mock>;
+  } {
+    return {
+      name,
+      capabilities: allCapabilities,
+      track: mock(() => {}),
+      identify: mock(() => {}),
+      page: mock(() => {}),
+      group: mock(() => {}),
+      alias: mock(() => {}),
+      screen: mock(() => {}),
+      reset: mock(() => {}),
+    };
+  }
+
+  function stubBrowserPrivacySignal(): void {
+    Object.defineProperty(globalThis, "window", { value: {}, configurable: true, writable: true });
+    Object.defineProperty(globalThis, "navigator", {
+      value: { globalPrivacyControl: true },
+      configurable: true,
+      writable: true,
+    });
+  }
+
+  function clearBrowserGlobals(): void {
+    for (const key of ["window", "navigator"] as const) {
+      delete (globalThis as Record<string, unknown>)[key];
+    }
+  }
+
+  it("no consent option supplied: every verb behaves byte-for-byte identically to pre-Phase-11, including the dev-server mirror firing unconditionally", () => {
+    const fetchStub = stubFetch(() => Promise.resolve(new Response(null, { status: 200 })));
+    const provider = spyProvider();
+
+    const analytics = createAnalytics({ provider, devServer: true });
+
+    analytics.track("signup", { plan: "pro" });
+    analytics.identify("user_1");
+    analytics.page();
+    analytics.group("group_1");
+    analytics.alias("user_2");
+    analytics.screen();
+
+    expect(provider.track).toHaveBeenCalledTimes(1);
+    expect(provider.identify).toHaveBeenCalledTimes(1);
+    expect(provider.page).toHaveBeenCalledTimes(1);
+    expect(provider.group).toHaveBeenCalledTimes(1);
+    expect(provider.alias).toHaveBeenCalledTimes(1);
+    expect(provider.screen).toHaveBeenCalledTimes(1);
+    // The dev-server mirror still fires for the one track() call, exactly
+    // as pre-Phase-11 -- unconditionally, regardless of consent (there is
+    // none configured here).
+    expect(fetchStub).toHaveBeenCalledTimes(1);
+
+    // `analytics.consent` is present even with no `consent` option supplied,
+    // and grant/deny/get still work and track state, with no gating effect.
+    expect(analytics.consent.hasConsent("analytics")).toBe(false);
+    analytics.consent.grant("analytics");
+    expect(analytics.consent.hasConsent("analytics")).toBe(true);
+    expect(analytics.consent.get()).toEqual({ analytics: "granted" });
+  });
+
+  it("requiredCategories: ['analytics'], no initialState (resolves to 'denied'): every one of the six verbs is a complete no-op, including no dev-server-mirror fetch, until grant() is called", () => {
+    const fetchStub = stubFetch(() => Promise.resolve(new Response(null, { status: 200 })));
+    const provider = spyProvider();
+
+    const analytics = createAnalytics({
+      provider,
+      devServer: true,
+      consent: { requiredCategories: ["analytics"] },
+    });
+
+    expect(analytics.track("signup", { plan: "pro" })).toBeUndefined();
+    expect(analytics.identify("user_1")).toBeUndefined();
+    expect(analytics.page()).toBeUndefined();
+    expect(analytics.group("group_1")).toBeUndefined();
+    expect(analytics.alias("user_2")).toBeUndefined();
+    expect(analytics.screen()).toBeUndefined();
+
+    expect(provider.track).not.toHaveBeenCalled();
+    expect(provider.identify).not.toHaveBeenCalled();
+    expect(provider.page).not.toHaveBeenCalled();
+    expect(provider.group).not.toHaveBeenCalled();
+    expect(provider.alias).not.toHaveBeenCalled();
+    expect(provider.screen).not.toHaveBeenCalled();
+    expect(fetchStub).not.toHaveBeenCalled();
+
+    analytics.consent.grant("analytics");
+
+    analytics.track("signup", { plan: "pro" });
+    analytics.identify("user_1");
+    analytics.page();
+    analytics.group("group_1");
+    analytics.alias("user_2");
+    analytics.screen();
+
+    expect(provider.track).toHaveBeenCalledTimes(1);
+    expect(provider.identify).toHaveBeenCalledTimes(1);
+    expect(provider.page).toHaveBeenCalledTimes(1);
+    expect(provider.group).toHaveBeenCalledTimes(1);
+    expect(provider.alias).toHaveBeenCalledTimes(1);
+    expect(provider.screen).toHaveBeenCalledTimes(1);
+    expect(fetchStub).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(["track", "page", "screen", "identify", "group", "alias"] as const)(
+    "%s() individually: blocked while denied, delivered once granted",
+    (verb) => {
+      const provider = spyProvider();
+      const analytics = createAnalytics({ provider, consent: { requiredCategories: ["analytics"] } });
+
+      function call() {
+        switch (verb) {
+          case "track":
+            return analytics.track("evt");
+          case "page":
+            return analytics.page();
+          case "screen":
+            return analytics.screen();
+          case "identify":
+            return analytics.identify("user_1");
+          case "group":
+            return analytics.group("group_1");
+          case "alias":
+            return analytics.alias("user_2");
+        }
+      }
+
+      call();
+      expect(provider[verb]).not.toHaveBeenCalled();
+
+      analytics.consent.grant("analytics");
+      call();
+      expect(provider[verb]).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it("blocked identify() does not mutate core's stored userId (verified via a subsequent group() call's userId argument once unblocked)", () => {
+    const provider = spyProvider();
+    const analytics = createAnalytics({ provider, consent: { requiredCategories: ["analytics"] } });
+
+    analytics.identify("blocked_user");
+    expect(provider.identify).not.toHaveBeenCalled();
+
+    analytics.consent.grant("analytics");
+    analytics.group("group_1");
+
+    expect(provider.group).toHaveBeenCalledTimes(1);
+    const [, , identity] = provider.group.mock.calls[0]!;
+    // If the blocked identify() had mutated core's `userId`, this would be
+    // "blocked_user" instead of `undefined` -- confirms the gate ran before
+    // the `userId` reassignment, not after.
+    expect((identity as { userId?: string }).userId).toBeUndefined();
+  });
+
+  it("deny() after a prior grant() re-blocks the six verbs again", () => {
+    const provider = spyProvider();
+    const analytics = createAnalytics({ provider, consent: { requiredCategories: ["analytics"] } });
+
+    analytics.consent.grant("analytics");
+    analytics.track("evt");
+    expect(provider.track).toHaveBeenCalledTimes(1);
+
+    analytics.consent.deny("analytics");
+    analytics.track("evt");
+    analytics.page();
+    analytics.identify("user_1");
+    expect(provider.track).toHaveBeenCalledTimes(1);
+    expect(provider.page).not.toHaveBeenCalled();
+    expect(provider.identify).not.toHaveBeenCalled();
+  });
+
+  it("initialState pre-seeds consent: the six verbs work immediately at construction, no grant() call needed", () => {
+    const provider = spyProvider();
+    const analytics = createAnalytics({
+      provider,
+      consent: { requiredCategories: ["analytics"], initialState: { analytics: "granted" } },
+    });
+
+    analytics.track("evt");
+    analytics.page();
+    analytics.screen();
+    analytics.identify("user_1");
+    analytics.group("group_1");
+    analytics.alias("user_2");
+
+    expect(provider.track).toHaveBeenCalledTimes(1);
+    expect(provider.page).toHaveBeenCalledTimes(1);
+    expect(provider.screen).toHaveBeenCalledTimes(1);
+    expect(provider.identify).toHaveBeenCalledTimes(1);
+    expect(provider.group).toHaveBeenCalledTimes(1);
+    expect(provider.alias).toHaveBeenCalledTimes(1);
+  });
+
+  it("multi-category AND semantics: still fully blocked until every required category is granted", () => {
+    const provider = spyProvider();
+    const analytics = createAnalytics({
+      provider,
+      consent: {
+        requiredCategories: ["analytics", "marketing"],
+        initialState: { analytics: "granted" },
+      },
+    });
+
+    analytics.track("evt");
+    expect(provider.track).not.toHaveBeenCalled();
+
+    analytics.consent.grant("marketing");
+    analytics.track("evt");
+    expect(provider.track).toHaveBeenCalledTimes(1);
+  });
+
+  it("respectBrowserSignals: true with a stubbed browser privacy signal present, no initialState: fail-closed by default even without an explicit defaultState: 'denied'", () => {
+    stubBrowserPrivacySignal();
+    try {
+      const provider = spyProvider();
+      const analytics = createAnalytics({
+        provider,
+        consent: { requiredCategories: ["analytics"], respectBrowserSignals: true },
+      });
+
+      analytics.track("evt");
+      analytics.page();
+
+      expect(provider.track).not.toHaveBeenCalled();
+      expect(provider.page).not.toHaveBeenCalled();
+
+      // Confirms `resolveDefaultState` is actually consumed: an explicit
+      // grant still overrides the forced-denied default.
+      analytics.consent.grant("analytics");
+      analytics.track("evt");
+      expect(provider.track).toHaveBeenCalledTimes(1);
+    } finally {
+      clearBrowserGlobals();
+    }
+  });
+
+  it("get()'s returned object, when mutated by the caller, has no effect on subsequent hasConsent()/gating behavior", () => {
+    const provider = spyProvider();
+    const analytics = createAnalytics({
+      provider,
+      consent: { requiredCategories: ["analytics"], initialState: { analytics: "granted" } },
+    });
+
+    const snapshot = analytics.consent.get();
+    snapshot.analytics = "denied";
+    (snapshot as Record<string, string>).marketing = "granted";
+
+    expect(analytics.consent.hasConsent("analytics")).toBe(true);
+    expect(analytics.consent.get()).toEqual({ analytics: "granted" });
+
+    analytics.track("evt");
+    expect(provider.track).toHaveBeenCalledTimes(1);
+  });
+
+  it("reset() does not clear or otherwise alter consent state -- grant -> reset() -> verb-call still succeeds, and a denied category still blocks after reset()", async () => {
+    const grantedProvider = spyProvider("granted-case");
+    const grantedAnalytics = createAnalytics({
+      provider: grantedProvider,
+      consent: { requiredCategories: ["analytics"] },
+    });
+    grantedAnalytics.consent.grant("analytics");
+    await grantedAnalytics.reset();
+    grantedAnalytics.track("evt");
+    expect(grantedProvider.track).toHaveBeenCalledTimes(1);
+
+    const deniedProvider = spyProvider("denied-case");
+    const deniedAnalytics = createAnalytics({
+      provider: deniedProvider,
+      consent: { requiredCategories: ["analytics"] },
+    });
+    await deniedAnalytics.reset();
+    deniedAnalytics.track("evt");
+    expect(deniedProvider.track).not.toHaveBeenCalled();
+  });
+});
