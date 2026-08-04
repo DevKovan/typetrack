@@ -24,6 +24,13 @@
         "zod",
       ],
     },
+    "examples/advanced/offline-resilient-tracking": {
+      "name": "example-advanced-offline-resilient-tracking",
+      "version": "0.0.0",
+      "dependencies": {
+        "typetrack": "file:../../..",
+      },
+    },
     "examples/core/canonical-event-shape": {
       "name": "example-core-canonical-event-shape",
       "version": "0.0.0",
@@ -611,6 +618,8 @@
 
     "esbuild": ["esbuild@0.27.7", "", { "optionalDependencies": { "@esbuild/aix-ppc64": "0.27.7", "@esbuild/android-arm": "0.27.7", "@esbuild/android-arm64": "0.27.7", "@esbuild/android-x64": "0.27.7", "@esbuild/darwin-arm64": "0.27.7", "@esbuild/darwin-x64": "0.27.7", "@esbuild/freebsd-arm64": "0.27.7", "@esbuild/freebsd-x64": "0.27.7", "@esbuild/linux-arm": "0.27.7", "@esbuild/linux-arm64": "0.27.7", "@esbuild/linux-ia32": "0.27.7", "@esbuild/linux-loong64": "0.27.7", "@esbuild/linux-mips64el": "0.27.7", "@esbuild/linux-ppc64": "0.27.7", "@esbuild/linux-riscv64": "0.27.7", "@esbuild/linux-s390x": "0.27.7", "@esbuild/linux-x64": "0.27.7", "@esbuild/netbsd-arm64": "0.27.7", "@esbuild/netbsd-x64": "0.27.7", "@esbuild/openbsd-arm64": "0.27.7", "@esbuild/openbsd-x64": "0.27.7", "@esbuild/openharmony-arm64": "0.27.7", "@esbuild/sunos-x64": "0.27.7", "@esbuild/win32-arm64": "0.27.7", "@esbuild/win32-ia32": "0.27.7", "@esbuild/win32-x64": "0.27.7" }, "bin": { "esbuild": "bin/esbuild" } }, "sha512-IxpibTjyVnmrIQo5aqNpCgoACA/dTKLTlhMHihVHhdkxKyPO1uBBthumT0rdHmcsk9uMonIWS0m4FljWzILh3w=="],
 
+    "example-advanced-offline-resilient-tracking": ["example-advanced-offline-resilient-tracking@workspace:examples/advanced/offline-resilient-tracking"],
+
     "example-core-canonical-event-shape": ["example-core-canonical-event-shape@workspace:examples/core/canonical-event-shape"],
 
     "example-core-context-capture": ["example-core-context-capture@workspace:examples/core/context-capture"],
@@ -781,9 +790,7 @@
 
     "@testing-library/jest-dom/dom-accessibility-api": ["dom-accessibility-api@0.6.3", "", {}, "sha512-7ZgogeTnjuHbo+ct10G9Ffp0mif17idi0IyWNVA/wcwcm7NPOD/WEHVP3n7n3MhXqxoIYm8d6MuZohYWIZ4T3w=="],
 
-    "example-recipes-anonymous-and-cookieless-tracking/typetrack": ["typetrack@root:", {}],
-
-    "example-recipes-consent-gated-tracking/typetrack": ["typetrack@root:", {}],
+    "example-advanced-offline-resilient-tracking/typetrack": ["typetrack@root:", {}],
 
     "tsup/chokidar": ["chokidar@4.0.3", "", { "dependencies": { "readdirp": "^4.0.1" } }, "sha512-Qgzu8kfBvo+cA4962jnP1KkS6Dop5NS6g7R5LFYJr4b8Ub94PPQXUksCw9PvXoeXPRRddRNC5C1JQUR2SMGtnA=="],
 

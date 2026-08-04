@@ -1,0 +1,108 @@
+This is the literal console output produced by `bun run index.ts` (stdout and
+stderr combined -- `console.warn` writes to stderr, everything else to
+stdout). Every line is exactly reproducible on every run EXCEPT the single
+stack-trace block following "typetrack: dropping queued event after 3 failed
+attempts ..." below: `src/reliability/queue.ts`'s `recordFailure()` passes
+the raw `Error` object as `console.warn`'s second argument (rather than
+interpolating it into the message string, as every other warning in this
+codebase does), and Bun/Node's console formatting renders that as a full
+stack trace, including this checkout's own absolute filesystem path -- that
+one block will differ (only in the absolute path segment) depending on where
+this repo is cloned; nothing else in this output depends on any random value
+or environment.
+
+=== Step 1: construct with a flaky, batch-capable "warehouse-analytics" provider ===
+[flow] instance constructed: maxAttempts=3, backoff={baseMs:100,factor:2,maxMs:1000}, batch={size:5,intervalMs:200}
+[flow] warehouse-analytics is mid-incident (outageActive=true) -- every call fails until it recovers
+
+=== Step 2: the visitor browses while the vendor's ingestion endpoint is down ===
+typetrack: provider "warehouse-analytics" failed during "track()" -- Error: warehouse-analytics: ingestion endpoint unavailable (503)
+typetrack: provider "warehouse-analytics" failed during "track()" -- Error: warehouse-analytics: ingestion endpoint unavailable (503)
+typetrack: provider "warehouse-analytics" failed during "track()" -- Error: warehouse-analytics: ingestion endpoint unavailable (503)
+typetrack: provider "warehouse-analytics" failed during "track()" -- Error: warehouse-analytics: ingestion endpoint unavailable (503)
+[flow] queue.size() after 4 low-priority Product Viewed events (all failing) = 4
+
+=== Step 3: the visitor reaches checkout -- a high-priority "Checkout Started" event, also failing ===
+typetrack: provider "warehouse-analytics" failed during "track()" -- Error: warehouse-analytics: ingestion endpoint unavailable (503)
+[flow] queue.size() after Checkout Started (priority 10), also queued = 5
+
+=== one more low-priority view arrives: a discontinued product the vendor will NEVER accept ===
+typetrack: provider "warehouse-analytics" failed during "track()" -- Error: warehouse-analytics: ingestion endpoint unavailable (503)
+[flow] queue.size() after the permanently-invalid Product Viewed (6 total queued) = 6
+
+=== Step 4: the vendor incident resolves -- trigger analytics.flush() ===
+[flow] warehouse-analytics recovers (outageActive=false) -- except the permanently-invalid sku above
+[flow] trackBatch call #1: ["Checkout Started","Product Viewed","Product Viewed","Product Viewed","Product Viewed"] -- Checkout Started drains first (priority ordering), bundled with the 4 Product Viewed events in ONE trackBatch call rather than 5 individual track() calls (batching) -- succeeds, none of these reappear.
+[flow] trackBatch call #2: ["Product Viewed"] -- the permanently-invalid event alone (a separate chunk, since batch.size: 5 caps each trackBatch call) -- fails.
+[flow] queue.size() after flush(): only the permanently-invalid entry remains = 1
+
+=== retrying the permanently-invalid event towards maxAttempts (3) ===
+[flow] analytics.queue.drain() immediately after a failure respects the entry's own backoff window (not yet elapsed) -- no new attempt
+[flow] queue.size() after a backoff-respecting drain() (gated, no new attempt) = 1
+[flow] analytics.flush() bypasses that backoff gate -- attempt 2 of 3, still fails (still the same permanently-invalid sku)
+[flow] queue.size() after flush() attempt 2/3 (still queued) = 1
+[flow] analytics.flush() -- attempt 3 of 3 -- maxAttempts exhausted -> dead-lettered and dropped
+typetrack: dropping queued event after 3 failed attempts (provider "warehouse-analytics", event "Product Viewed") warn: warehouse-analytics: permanently rejected sku "TT-RETIRED-001" (delisted product, 422)
+      at track (<this-checkout's-absolute-path>/examples/advanced/offline-resilient-tracking/index.ts:109:15)
+      at drainSingleEntry (<this-checkout's-absolute-path>/src/index.ts:811:24)
+      at drainQueueOnce (<this-checkout's-absolute-path>/src/index.ts:921:15)
+      at flush (<this-checkout's-absolute-path>/src/index.ts:1416:15)
+      at runOfflineResilientTrackingFlow (<this-checkout's-absolute-path>/examples/advanced/offline-resilient-tracking/index.ts:292:19)
+
+[flow] dead-lettered: "Product Viewed" (sku=TT-RETIRED-001) -- Error: warehouse-analytics: permanently rejected sku "TT-RETIRED-001" (delisted product, 422)
+[flow] queue.size() after flush() attempt 3/3 (dead-lettered, queue empty) = 0
+
+=== Step 5: the visitor's own connection drops mid-session ===
+[flow] offline track(): provider call count unchanged (8 -> 8) -- queued directly, no failed-call attempt logged
+[flow] queue.size() while offline, one event queued = 1
+
+=== the visitor's connection comes back -- the browser fires "online" ===
+[flow] the queue drained automatically -- no explicit flush() call was made for this event
+[flow] queue.size() after the automatic online-triggered drain = 0
+
+=== Step 6: one final event fires just as the connection drops again, then the page unloads ===
+[flow] queue.size() one final unsent event queued, right before pagehide = 1
+[flow] pagehide fired a best-effort, fire-and-forget provider.track() call for the queued entry (9 -> 10 track() calls) -- no recordSuccess/recordFailure bookkeeping happens from this path (at-least-once, not exactly-once, delivery)
+[flow] queue.size() after pagehide (queue left untouched -- at-least-once, not exactly-once) = 1
+[flow] destroy() stops the background drain timer and removes the online/pagehide listeners
+
+Notes on what's happening above, per step:
+- Steps 1-3: the vendor's ingestion endpoint is down (`outageActive: true`).
+  4 low-priority "Product Viewed" events and a high-priority "Checkout
+  Started" event all fail on their first attempt and land in the offline
+  queue (`analytics.queue.size()` growing from 4 to 5), never lost. A 6th
+  event -- viewing a discontinued product (`TT-RETIRED-001`) -- also fails
+  and queues, but for a different, permanent reason (see below).
+- Step 4: the vendor recovers, and `analytics.flush()` (bypassing every
+  entry's backoff gate) drains everything ready in one pass. `queueEngine
+  .peekReady()` sorts by priority first, so "Checkout Started" (priority
+  10) sorts ahead of every "Product Viewed" (priority 0) despite being
+  queued later -- and since this provider declares `capabilities.batch:
+  true` plus `trackBatch`, and `batch.size: 5` caps each call, the first 5
+  ready entries (checkout + the 4 product views) go out in ONE `trackBatch`
+  call, in that priority order, rather than 5 individual `track()` calls
+  (both priority ordering and batching, demonstrated by the same call). The
+  6th entry (the discontinued product) is alone in the next chunk and fails
+  again -- this is not a transient network issue, it's the vendor
+  permanently rejecting that specific SKU.
+- Retrying towards `maxAttempts: 3`: `analytics.queue.drain()` respects
+  each entry's own backoff window (issue 002) -- called immediately after a
+  failure, nothing has elapsed yet, so it's a no-op. `analytics.flush()`
+  bypasses that gate on demand, retries immediately, and fails again
+  (attempt 2 of 3). A third `flush()` exhausts `maxAttempts`: the entry is
+  dead-lettered (dropped, never retried again) and the registered
+  `onError` middleware is notified exactly once, proving the retry ceiling
+  is real, not eventually-always-succeeds.
+- Step 5: the visitor's own connection drops (`navigator.onLine = false`).
+  A further "Product Viewed" call is queued directly -- the provider's
+  `track()` is never even attempted (`8 -> 8` calls, unchanged) because
+  offline detection short-circuits before dispatch. When the browser fires
+  its `"online"` event, the queue drains automatically -- no explicit
+  `flush()`/`queue.drain()` call was needed.
+- Step 6: one more event queues while offline, then a simulated `pagehide`
+  fires a fire-and-forget, best-effort `track()` call for it (`9 -> 10`
+  calls) without waiting for (or recording) its outcome -- the queue's
+  size is left exactly as it was (`1`), an intentional at-least-once (not
+  exactly-once) tradeoff: if that last-ditch attempt actually succeeded,
+  the same event is simply retried again (and immediately succeeds) on the
+  next page load.

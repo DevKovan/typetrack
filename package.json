@@ -11,7 +11,8 @@
     "examples/providers/*",
     "examples/middleware/*",
     "examples/plugins/*",
-    "examples/recipes/*"
+    "examples/recipes/*",
+    "examples/advanced/*"
   ],
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
