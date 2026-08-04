@@ -10,8 +10,10 @@
 import "./testSetup";
 
 import { afterAll, beforeEach, describe, expect, it, mock, spyOn } from "bun:test";
+import { StrictMode } from "react";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
 import { AnalyticsProvider as ReactAnalyticsProvider, useAnalytics as reactUseAnalytics } from "@typetrack/react";
+import { dispatchPageView } from "typetrack";
 import type { Analytics, EventMap } from "typetrack";
 
 // `next/navigation`'s `usePathname`/`useSearchParams` (consumed by
@@ -229,5 +231,60 @@ describe("AnalyticsPageView (integration, real @testing-library/react rendering,
     );
 
     expect(fakeAnalytics.page).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("AnalyticsPageView under React.StrictMode (integration, real @testing-library/react rendering, Phase 10 issue 006)", () => {
+  beforeEach(() => {
+    mockPathname = "/";
+    mockSearch = "";
+    usePathname.mockClear();
+    useSearchParams.mockClear();
+  });
+
+  // Proves `AnalyticsPageView.tsx`'s `useEffect` now delegates to
+  // `dispatchPageView` (not `analytics.page` directly): React 19's
+  // `<StrictMode>` double-invokes effects in development (verified above --
+  // the same `render()` under `<StrictMode>` calls a plain `useEffect`
+  // callback twice for one mount, in this exact test environment), which
+  // would otherwise mean two identical `.page()` calls for one real
+  // navigation. Because both invocations compute the exact same
+  // `PageViewArgs` (same `pathname`/`searchParams`, unchanged between the two
+  // invocations), `dispatchPageView`'s own dedup (`src/plugins/autoPage.ts`,
+  // issue 002) collapses them into exactly one delivered `.page()` call.
+  it("delivers exactly one .page() call on mount, not two, when double-invoked by React.StrictMode", () => {
+    const fakeAnalytics = createFakeAnalytics();
+    mockPathname = "/dashboard";
+    mockSearch = "tab=billing";
+
+    const { container } = render(
+      <StrictMode>
+        <AnalyticsProvider analytics={fakeAnalytics}>
+          <AnalyticsPageView />
+        </AnalyticsProvider>
+      </StrictMode>,
+    );
+
+    expect(container).toBeTruthy();
+    expect(fakeAnalytics.page).toHaveBeenCalledTimes(1);
+    expect(fakeAnalytics.page).toHaveBeenCalledWith("/dashboard", { search: "tab=billing" });
+  });
+
+  // Complements the rendering-based proof above with a direct, unit-level
+  // demonstration of the exact mechanism `AnalyticsPageView.tsx`'s
+  // `useEffect` now relies on: calling the same shared `dispatchPageView`
+  // helper (imported here from `typetrack`, the same import
+  // `AnalyticsPageView.tsx` itself uses) twice in a row against the same
+  // analytics instance with identical computed `PageViewArgs` -- exactly
+  // what two Strict-Mode-double-invoked runs of the tracker's effect body
+  // would produce -- still results in only one delivered `.page()` call.
+  it("dispatchPageView collapses two consecutive calls with identical args against the same analytics instance into one .page() call", () => {
+    const fakeAnalytics = createFakeAnalytics();
+
+    dispatchPageView(fakeAnalytics, { name: "/dashboard", props: { search: "tab=billing" } });
+    dispatchPageView(fakeAnalytics, { name: "/dashboard", props: { search: "tab=billing" } });
+
+    expect(fakeAnalytics.page).toHaveBeenCalledTimes(1);
+    expect(fakeAnalytics.page).toHaveBeenCalledWith("/dashboard", { search: "tab=billing" });
   });
 });

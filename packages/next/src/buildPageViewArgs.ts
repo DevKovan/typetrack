@@ -12,10 +12,16 @@
 // string is empty, so a plain pathname-only `.page(name)` call is made for
 // routes with no search params, matching core's own optional-`props`
 // `page(name?, props?)` signature.
-export interface PageViewArgs {
-  name: string;
-  props?: Record<string, unknown>;
-}
+//
+// `PageViewArgs` itself is no longer declared here (Phase 10 issue 006): it
+// is imported from `typetrack`'s own public barrel, where `dispatchPageView`
+// (see `AnalyticsPageView.tsx`) and the built-in `autoPage()` plugin already
+// define/consume this exact shape (Phase 10 issue 002) -- re-exported below
+// so existing `@typetrack/next` consumers importing `PageViewArgs` from this
+// package keep working unchanged.
+import type { PageViewArgs } from "typetrack";
+
+export type { PageViewArgs };
 
 // `searchParams` is typed against `next/navigation`'s real
 // `useSearchParams()` return type (`URLSearchParams`, specifically Next's

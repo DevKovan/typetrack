@@ -23,6 +23,7 @@
 import { Suspense, useEffect } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
 import { useAnalytics } from "@typetrack/react";
+import { dispatchPageView } from "typetrack";
 import { buildPageViewArgs } from "./buildPageViewArgs";
 
 // The actual hook-consuming logic, kept separate from the exported
@@ -47,7 +48,14 @@ function AnalyticsPageViewTracker() {
   useEffect(() => {
     const { name, props } = buildPageViewArgs(pathname, searchParams);
 
-    analytics.page(name, props);
+    // Delegates to the same shared, dedup-aware dispatch helper the
+    // built-in `autoPage()` plugin uses internally (`typetrack`'s
+    // `dispatchPageView`, Phase 10 issue 002), instead of calling
+    // `analytics.page(name, props)` directly -- genuine code reuse (per this
+    // issue's plan doc), with React Strict Mode's development-only
+    // double-invoked effects no longer producing two delivered page views
+    // for one real navigation as a welcome side effect.
+    dispatchPageView(analytics, { name, props });
     // `searchParams` is deliberately omitted from the dependency array in
     // favor of its derived, stable `search` string -- see the comment above
     // `const search = searchParams.toString();`.
