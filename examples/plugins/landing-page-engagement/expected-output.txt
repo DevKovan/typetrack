@@ -1,0 +1,66 @@
+This is the literal console output produced by `bun run index.ts` (stdout and
+stderr combined -- nothing here writes to stderr). Nothing in this example
+depends on a randomly generated value: every line below is exactly
+reproducible on every run.
+
+=== Step 1: arriving via a campaign link ("/landing?utm_source=...") ===
+[provider] landing-page-warehouse received page("/landing") {"search":"?utm_source=newsletter&utm_medium=email&utm_campaign=spring-sale"}
+[provider] landing-page-warehouse received track("Campaign Landing") {"source":"newsletter","medium":"email","campaign":"spring-sale"}
+
+=== Step 2: initial autoPage() page view and autoUTM() landing event already fired at setup ===
+[flow] setup produced 2 provider call(s) so far
+
+=== Step 3: a visitor clicks the CTA (matches "[data-cta]"), then a non-matching link (ignored) ===
+[provider] landing-page-warehouse received track("Element Clicked") {"tag":"a","classes":"btn btn-primary","text":"Start Free Trial","href":"/signup"}
+
+=== Step 4: the visitor scrolls past the 25%/50%/100% thresholds ===
+[provider] landing-page-warehouse received track("Scroll Depth Reached") {"percent":25}
+[provider] landing-page-warehouse received track("Scroll Depth Reached") {"percent":50}
+[provider] landing-page-warehouse received track("Scroll Depth Reached") {"percent":100}
+
+=== Step 5: the visitor switches tabs (visibilitychange -> hidden) ===
+[provider] landing-page-warehouse received track("Page Visibility Changed") {"state":"hidden"}
+
+=== Step 6: a client-side navigation to "/pricing" (no UTM params) ===
+[provider] landing-page-warehouse received page("/pricing") {}
+
+=== Step 7: analytics.destroy() -- further scroll/click/pushState produce no further events ===
+[flow] 0 provider call(s) after destroy() (expected: 0, was 8 before)
+
+Notes on what's happening above, per step:
+- Step 1: `createAnalytics({ plugins: [autoPage(), autoUTM(), autoClicks({
+  selector: "[data-cta]" }), autoScroll({ thresholds: [25, 50, 100] }),
+  autoVisibility()] })` is constructed against a stubbed "page load" whose
+  `location.search` carries three of the five standard UTM params
+  (`utm_source`/`utm_medium`/`utm_campaign` -- `utm_term`/`utm_content` are
+  simply absent from this URL, and so absent from the delivered event too).
+- Step 2: both plugins that act immediately at setup have already fired, in
+  plugin-array registration order: `autoPage()` first (its unconditional
+  initial `.page()` call, representing the page load already in progress),
+  then `autoUTM()` (its one-shot "Campaign Landing" event, since UTM params
+  are present in the current URL).
+- Step 3: a click on `<span>` nested inside the `<a data-cta>` CTA button
+  resolves to the CTA itself via `Element.closest("[data-cta]")` --
+  `autoClicks()`'s scoping option -- and is tracked with the auto-computed
+  element properties. A second click on an unrelated `<a class="nav-link">`
+  link (no `data-cta` attribute anywhere in its ancestor chain) produces no
+  event at all: `autoClicks({ selector })` silently ignores any click whose
+  target doesn't resolve to a match.
+- Step 4: three separate `scroll` events, each crossing exactly one
+  configured threshold (`[25, 50, 100]`, customized away from the default
+  `[25, 50, 75, 100]`) -- each threshold fires exactly once, the moment
+  `computeScrollPercent` first reaches or exceeds it.
+- Step 5: a single `visibilitychange` to `"hidden"` (e.g. the visitor
+  switches tabs) is tracked with the current `document.visibilityState`.
+- Step 6: a simulated client-side navigation (`history.pushState`) to
+  `"/pricing"` with an empty `location.search`. `autoPage()`'s patched
+  `pushState` fires a second `.page()` call for the new route.  `autoUTM()`
+  does *not* re-fire -- not because of any "already landed" check running
+  again, but because `autoUTM()` is genuinely one-shot: it has no listener
+  of any kind after setup, so a later navigation is invisible to it by
+  construction (see the Production notes below).
+- Step 7: `analytics.destroy()` tears down every plugin's listeners in
+  registration order. A further simulated click, scroll, and `pushState`
+  afterward together produce exactly zero additional provider calls --
+  `[flow] 0 provider call(s) after destroy()` confirms teardown was
+  effective end-to-end through the public API, not just at the unit level.

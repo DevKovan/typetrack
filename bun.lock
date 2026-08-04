@@ -60,6 +60,20 @@
         "typetrack": "file:../../..",
       },
     },
+    "examples/plugins/landing-page-engagement": {
+      "name": "example-plugins-landing-page-engagement",
+      "version": "0.0.0",
+      "dependencies": {
+        "typetrack": "file:../../..",
+      },
+    },
+    "examples/plugins/site-reliability-and-vitals": {
+      "name": "example-plugins-site-reliability-and-vitals",
+      "version": "0.0.0",
+      "dependencies": {
+        "typetrack": "file:../../..",
+      },
+    },
     "examples/providers/multi-provider-routing": {
       "name": "example-providers-multi-provider-routing",
       "version": "0.0.0",
@@ -593,6 +607,10 @@
 
     "example-middleware-sampling-vs-routing": ["example-middleware-sampling-vs-routing@workspace:examples/middleware/sampling-vs-routing"],
 
+    "example-plugins-landing-page-engagement": ["example-plugins-landing-page-engagement@workspace:examples/plugins/landing-page-engagement"],
+
+    "example-plugins-site-reliability-and-vitals": ["example-plugins-site-reliability-and-vitals@workspace:examples/plugins/site-reliability-and-vitals"],
+
     "example-providers-multi-provider-routing": ["example-providers-multi-provider-routing@workspace:examples/providers/multi-provider-routing"],
 
     "fd-package-json": ["fd-package-json@2.0.0", "", { "dependencies": { "walk-up-path": "^4.0.0" } }, "sha512-jKmm9YtsNXN789RS/0mSzOC1NUq9mkVd65vbSSVsKdjGvYXBuE4oWe2QOEoFeRmJg+lPuZxpmrfFclNhoRMneQ=="],
@@ -745,7 +763,7 @@
 
     "@testing-library/jest-dom/dom-accessibility-api": ["dom-accessibility-api@0.6.3", "", {}, "sha512-7ZgogeTnjuHbo+ct10G9Ffp0mif17idi0IyWNVA/wcwcm7NPOD/WEHVP3n7n3MhXqxoIYm8d6MuZohYWIZ4T3w=="],
 
-    "example-core-context-capture/typetrack": ["typetrack@root:", {}],
+    "example-plugins-site-reliability-and-vitals/typetrack": ["typetrack@root:", {}],
 
     "tsup/chokidar": ["chokidar@4.0.3", "", { "dependencies": { "readdirp": "^4.0.1" } }, "sha512-Qgzu8kfBvo+cA4962jnP1KkS6Dop5NS6g7R5LFYJr4b8Ub94PPQXUksCw9PvXoeXPRRddRNC5C1JQUR2SMGtnA=="],
 

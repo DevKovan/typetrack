@@ -1,0 +1,69 @@
+This is the literal console output produced by `bun run index.ts` (stdout and
+stderr combined -- nothing here writes to stderr). Nothing in this example
+depends on a randomly generated value: every line below is exactly
+reproducible on every run (including the `0.15000000000000002` CLS total --
+that's genuine IEEE-754 floating-point summation of `0.07 + 0.08`, not a
+typo; see the Explanation section below).
+
+=== Step 1: createAnalytics({ plugins: [autoErrors(), autoWebVitals(), autoPerformance()] }) ===
+[flow] setup produced 0 provider call(s) (all 3 plugins are listener-only at setup)
+
+=== Step 2: a thrown error in application code reaches window's "error" event ===
+[provider] reliability-warehouse received track("Error Occurred") {"message":"TypeError: Cannot read properties of undefined (reading 'total')","filename":"checkout-summary.js","lineno":42,"colno":17,"stack":"TypeError: Cannot read properties of undefined (reading 'total')\n  at renderSummary (checkout-summary.js:42:17)"}
+
+=== Step 3: an unhandled promise rejection with a non-Error reason (a plain string) ===
+[provider] reliability-warehouse received track("Unhandled Rejection") {"reason":"Network request timed out"}
+
+=== Step 4: Web Vitals -- FCP (good), LCP (poor), CLS (needs-improvement), finalized on visibilitychange -> hidden ===
+[provider] reliability-warehouse received track("Web Vital Measured") {"name":"FCP","value":1200,"rating":"good"}
+[provider] reliability-warehouse received track("Web Vital Measured") {"name":"LCP","value":4200,"rating":"poor"}
+[provider] reliability-warehouse received track("Web Vital Measured") {"name":"CLS","value":0.15000000000000002,"rating":"needs-improvement"}
+
+=== Step 5: navigation timing -- a fake "navigation" entry, finalized on the "load" event ===
+[provider] reliability-warehouse received track("Page Performance Measured") {"ttfb":25,"domContentLoaded":150,"loadComplete":220,"dnsMs":10,"tcpMs":15,"requestMs":25,"responseMs":30}
+
+=== Step 6: analytics.destroy() -- autoErrors()'s listeners are removed; a further simulated error produces no event ===
+[flow] 0 provider call(s) after destroy() (expected: 0, was 6 before)
+
+Notes on what's happening above, per step:
+- Step 1: `createAnalytics({ plugins: [autoErrors(), autoWebVitals(),
+  autoPerformance()] })` is constructed against a stubbed browser
+  environment extended with a stub `PerformanceObserver` and
+  `performance.getEntriesByType`. All three plugins are purely
+  listener-registering at setup -- zero provider calls happen before any
+  simulated event/entry is fed in.
+- Step 2: a simulated `window` `"error"` event (as a real uncaught
+  `TypeError` thrown deep in application code would produce) is tracked as
+  `"Error Occurred"` with `message`/`filename`/`lineno`/`colno`/`stack`.
+- Step 3: a simulated `unhandledrejection` whose `reason` is a plain string
+  (`"Network request timed out"`, not an `Error` instance -- e.g. a
+  hand-rolled `Promise.reject("...")` somewhere in application code) is
+  tracked as `"Unhandled Rejection"` with that exact string as `reason` --
+  `autoErrors()`'s `computeRejectionReason` only special-cases real `Error`
+  instances (extracting `.message`); anything else is coerced via
+  `String(reason)`.
+- Step 4: three `"Web Vital Measured"` events, one per vital, deliberately
+  chosen to land in a different rating bucket each: FCP at `1200`ms is
+  `"good"` (<=1800ms), LCP at `4200`ms (the latest of two fed candidates --
+  only the latest LCP value is ever kept) is `"poor"` (>4000ms), and CLS's
+  accumulated total of `0.07 + 0.08` (a third, `0.5`-magnitude entry is fed
+  with `hadRecentInput: true` and correctly excluded from the total -- e.g.
+  a layout shift caused by the visitor's own click, not a surprise reflow)
+  is `"needs-improvement"` (>0.1, <=0.25). LCP and CLS both finalize on the
+  same single `visibilitychange -> "hidden"` event (the standard
+  recommended finalization pattern); FCP had already fired immediately on
+  its own first entry, no finalization needed.
+- Step 5: a fake Navigation Timing entry is registered, then the `"load"`
+  event fires -- `autoPerformance()` reads
+  `performance.getEntriesByType("navigation")[0]` at that point and reports
+  the computed duration fields (`ttfb`/`domContentLoaded`/`loadComplete`/
+  `dnsMs`/`tcpMs`/`requestMs`/`responseMs`) as `"Page Performance Measured"`.
+- Step 6: `analytics.destroy()` tears down `autoErrors()`'s two listeners
+  (`error`/`unhandledrejection`) -- a further simulated error and rejection
+  afterward produce exactly zero additional provider calls. `autoWebVitals()`
+  and `autoPerformance()` have nothing further to tear down by this point in
+  the flow: `autoWebVitals()`'s LCP/CLS already finalized in Step 4 (its FCP
+  observer had already disconnected itself even earlier, right after its
+  one-shot report), and `autoPerformance()` already fired its one-shot
+  measurement in Step 5 -- see the Production notes below for why this is a
+  documented limitation, not a bug this example works around.

@@ -9,7 +9,8 @@
     "packages/*",
     "examples/core/*",
     "examples/providers/*",
-    "examples/middleware/*"
+    "examples/middleware/*",
+    "examples/plugins/*"
   ],
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
