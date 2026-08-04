@@ -554,3 +554,198 @@ describe("createAnalytics({ consent }) (Phase 11 issue 002)", () => {
     expect(deniedProvider.track).not.toHaveBeenCalled();
   });
 });
+
+// Integration tests for Phase 11 issue 003: the `enable()`/`disable()`/
+// `isEnabled()` coarse kill switch, and its AND composition with issue 002's
+// consent gate inside the shared `isTrackingAllowed()`. No new unit tests --
+// this is closure-state wiring with no standalone pure logic, per the
+// issue's "Test requirements".
+describe("createAnalytics() enable()/disable()/isEnabled() (Phase 11 issue 003)", () => {
+  function spyProvider(name = "spy"): AnalyticsProvider & {
+    track: ReturnType<typeof mock>;
+    identify: ReturnType<typeof mock>;
+    page: ReturnType<typeof mock>;
+    group: ReturnType<typeof mock>;
+    alias: ReturnType<typeof mock>;
+    screen: ReturnType<typeof mock>;
+    reset: ReturnType<typeof mock>;
+  } {
+    return {
+      name,
+      capabilities: allCapabilities,
+      track: mock(() => {}),
+      identify: mock(() => {}),
+      page: mock(() => {}),
+      group: mock(() => {}),
+      alias: mock(() => {}),
+      screen: mock(() => {}),
+      reset: mock(() => {}),
+    };
+  }
+
+  function callVerb(
+    analytics: Analytics,
+    verb: "track" | "page" | "screen" | "identify" | "group" | "alias",
+  ): void | Promise<void> {
+    switch (verb) {
+      case "track":
+        return analytics.track("evt");
+      case "page":
+        return analytics.page();
+      case "screen":
+        return analytics.screen();
+      case "identify":
+        return analytics.identify("user_1");
+      case "group":
+        return analytics.group("group_1");
+      case "alias":
+        return analytics.alias("user_2");
+    }
+  }
+
+  it("isEnabled() is true immediately after construction, with no other calls", () => {
+    const analytics = createAnalytics();
+    expect(analytics.isEnabled()).toBe(true);
+  });
+
+  it.each(["track", "page", "screen", "identify", "group", "alias"] as const)(
+    "%s(): disable() blocks it completely (no provider call), enable() restores normal behavior, with no consent option configured at all",
+    (verb) => {
+      const provider = spyProvider();
+      const analytics = createAnalytics({ provider });
+
+      analytics.disable();
+      expect(analytics.isEnabled()).toBe(false);
+      callVerb(analytics, verb);
+      expect(provider[verb]).not.toHaveBeenCalled();
+
+      analytics.enable();
+      expect(analytics.isEnabled()).toBe(true);
+      callVerb(analytics, verb);
+      expect(provider[verb]).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it("disable() blocks track()'s dev-server mirror too, exactly like issue 002's consent-denied path", () => {
+    const originalFetch = globalThis.fetch;
+    const fetchStub = mock(() => Promise.resolve(new Response(null, { status: 200 })));
+    globalThis.fetch = fetchStub as unknown as typeof fetch;
+    try {
+      const provider = spyProvider();
+      const analytics = createAnalytics({ provider, devServer: true });
+
+      analytics.disable();
+      analytics.track("evt");
+
+      expect(provider.track).not.toHaveBeenCalled();
+      expect(fetchStub).not.toHaveBeenCalled();
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("four-way AND-composition matrix: enabled/disabled x granted/denied", () => {
+    // enabled x granted -> allowed
+    {
+      const provider = spyProvider("enabled-granted");
+      const analytics = createAnalytics({ provider, consent: { requiredCategories: ["analytics"] } });
+      analytics.consent.grant("analytics");
+      analytics.track("evt");
+      expect(provider.track).toHaveBeenCalledTimes(1);
+    }
+
+    // enabled x denied -> blocked
+    {
+      const provider = spyProvider("enabled-denied");
+      const analytics = createAnalytics({ provider, consent: { requiredCategories: ["analytics"] } });
+      analytics.track("evt");
+      expect(provider.track).not.toHaveBeenCalled();
+    }
+
+    // disabled x granted -> blocked
+    {
+      const provider = spyProvider("disabled-granted");
+      const analytics = createAnalytics({ provider, consent: { requiredCategories: ["analytics"] } });
+      analytics.consent.grant("analytics");
+      analytics.disable();
+      analytics.track("evt");
+      expect(provider.track).not.toHaveBeenCalled();
+    }
+
+    // disabled x denied -> blocked
+    {
+      const provider = spyProvider("disabled-denied");
+      const analytics = createAnalytics({ provider, consent: { requiredCategories: ["analytics"] } });
+      analytics.disable();
+      analytics.track("evt");
+      expect(provider.track).not.toHaveBeenCalled();
+    }
+
+    // enabled (default) x no consent option at all -> allowed
+    {
+      const provider = spyProvider("enabled-no-consent-option");
+      const analytics = createAnalytics({ provider });
+      analytics.track("evt");
+      expect(provider.track).toHaveBeenCalledTimes(1);
+    }
+  });
+
+  it("reset() does not re-enable a disabled instance, nor disable an enabled one", async () => {
+    const disabledProvider = spyProvider("disabled-case");
+    const disabledAnalytics = createAnalytics({ provider: disabledProvider });
+    disabledAnalytics.disable();
+    await disabledAnalytics.reset();
+    expect(disabledAnalytics.isEnabled()).toBe(false);
+    disabledAnalytics.track("evt");
+    expect(disabledProvider.track).not.toHaveBeenCalled();
+
+    const enabledProvider = spyProvider("enabled-case");
+    const enabledAnalytics = createAnalytics({ provider: enabledProvider });
+    await enabledAnalytics.reset();
+    expect(enabledAnalytics.isEnabled()).toBe(true);
+    enabledAnalytics.track("evt");
+    expect(enabledProvider.track).toHaveBeenCalledTimes(1);
+  });
+
+  it("no enable()/disable() calls at all: zero behavior change from pre-issue-003 (regression check)", () => {
+    const provider = spyProvider();
+    const analytics = createAnalytics({ provider });
+
+    expect(analytics.isEnabled()).toBe(true);
+    analytics.track("evt");
+    analytics.identify("user_1");
+    analytics.page();
+    analytics.group("group_1");
+    analytics.alias("user_2");
+    analytics.screen();
+
+    expect(provider.track).toHaveBeenCalledTimes(1);
+    expect(provider.identify).toHaveBeenCalledTimes(1);
+    expect(provider.page).toHaveBeenCalledTimes(1);
+    expect(provider.group).toHaveBeenCalledTimes(1);
+    expect(provider.alias).toHaveBeenCalledTimes(1);
+    expect(provider.screen).toHaveBeenCalledTimes(1);
+  });
+
+  it("no console.warn noise for a disabled instance's blocked calls", () => {
+    const originalConsoleWarn = console.warn;
+    const warnSpy = mock(() => {});
+    console.warn = warnSpy as unknown as typeof console.warn;
+    try {
+      const provider = spyProvider();
+      const analytics = createAnalytics({ provider });
+      analytics.disable();
+
+      analytics.track("evt");
+      analytics.identify("user_1");
+      analytics.page();
+      analytics.group("group_1");
+      analytics.alias("user_2");
+      analytics.screen();
+
+      expect(warnSpy).not.toHaveBeenCalled();
+    } finally {
+      console.warn = originalConsoleWarn;
+    }
+  });
+});

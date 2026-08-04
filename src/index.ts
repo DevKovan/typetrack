@@ -170,9 +170,16 @@ export interface Analytics<Events extends EventMap = EventMap> {
   // was supplied. Gates `track`/`page`/`screen`/`identify`/`group`/`alias`
   // globally when `requiredCategories` is configured -- see
   // `ConsentController` and `isTrackingAllowed()` below.
-  // `enable()`/`disable()` (the separate kill-switch gate) are intentionally
-  // not part of this interface yet -- deferred to issue 003.
   consent: ConsentController;
+  // Phase 11 issue 003: the coarse operational kill switch, independent of
+  // (and evaluated with AND semantics against) `consent` above. Defaults to
+  // enabled (`isEnabled()` is `true` immediately after construction, with no
+  // other calls) -- zero behavior change from pre-issue-003 for apps that
+  // never call `enable()`/`disable()`. See `isTrackingAllowed()` below for
+  // how this composes with the consent gate.
+  enable(): void;
+  disable(): void;
+  isEnabled(): boolean;
 }
 
 export function createAnalytics<Events extends EventMap = EventMap>(
@@ -236,15 +243,25 @@ export function createAnalytics<Events extends EventMap = EventMap>(
   const consentState: ConsentState = { ...options.consent?.initialState };
   const requiredCategories = options.consent?.requiredCategories;
 
+  // Phase 11 issue 003: the coarse operational kill switch. Defaults to
+  // `true` -- matches pre-Phase-11 behavior exactly, so every existing test
+  // continues to pass unmodified. Never touched by `reset()`/`destroy()` --
+  // an explicit `disable()` stays disabled across a `reset()` (design
+  // decision 1, `plan/phase-11-privacy-consent/BRIEF.md`); `destroy()`
+  // doesn't need to touch it either, since the instance's usable life is
+  // ending anyway.
+  let enabled = true;
+
   // Shared gate for the six data-carrying verbs (`track`/`page`/`screen`/
-  // `identify`/`group`/`alias`) -- issue 003 extends this same function
-  // (adding the `enabled` kill-switch check), so gating logic is never
-  // duplicated per-verb. When `options.consent` was never supplied,
+  // `identify`/`group`/`alias`). When `options.consent` was never supplied,
   // `requiredCategories` is `undefined`, so `isConsentedForCategories`
   // returns `true` vacuously -- zero gating effect, matching this phase's
-  // opt-in convention.
+  // opt-in convention. `enabled` is checked first (cheapest -- a single
+  // boolean read) so a disabled instance never even evaluates the
+  // consent-category logic -- `enabled` and consent state are fully
+  // independent switches, evaluated with AND semantics (issue 003).
   function isTrackingAllowed(): boolean {
-    return isConsentedForCategories(consentState, requiredCategories, defaultState);
+    return enabled && isConsentedForCategories(consentState, requiredCategories, defaultState);
   }
 
   // Shared gate for the five capability-dependent verbs: returns `true` when
@@ -801,6 +818,20 @@ export function createAnalytics<Events extends EventMap = EventMap>(
         // comment above).
         return { ...consentState };
       },
+    },
+    // Phase 11 issue 003: the coarse kill switch. No `console.warn` on a
+    // disabled instance's blocked calls -- unlike the capability-gating
+    // pattern, this is expected, deliberate, high-frequency behavior (e.g.
+    // every `track()` call while paused), not a misconfiguration worth
+    // flagging.
+    enable() {
+      enabled = true;
+    },
+    disable() {
+      enabled = false;
+    },
+    isEnabled() {
+      return enabled;
     },
   };
 
