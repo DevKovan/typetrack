@@ -148,3 +148,36 @@ are the record, this is just a trail of what happened when.
   (two composed flows: landing-page-engagement, site-reliability-and-vitals
   — covering all eight plugins). Per policy, this phase's issue files
   stay in `plan/phase-10-plugins/` permanently.
+- Phase 11 (privacy & consent): `src/consent.ts` — freeform-string
+  `ConsentCategory`, `ConsentState`, pure `hasConsent`/
+  `isConsentedForCategories`/`isConsentedForProvider`, and
+  `detectBrowserPrivacySignal`/`resolveDefaultState` (DNT/GPC detection,
+  fail-closed `"denied"` default unless `respectBrowserSignals` maps a
+  detected signal to `"denied"` regardless of a configured `"granted"`
+  default — one primitive serving both GDPR opt-in and CCPA/GPC opt-out
+  postures). Wired into `createAnalytics({ consent })`: a live
+  `analytics.consent` controller (`grant`/`deny`/`hasConsent`/`get`,
+  snapshot-cloned) and a shared `isTrackingAllowed()` gate applied as the
+  very first statement of all six data verbs (`track`/`page`/`screen`/
+  `identify`/`group`/`alias`), including `track()`'s dev-server mirror.
+  Added the VISION.md-reserved `enable()`/`disable()`/`isEnabled()` kill
+  switch — AND'd with consent, `enabled` checked first, no warning noise
+  on blocked calls. Added `anonymousMode` (suppresses `identify`/`alias`
+  as one-time-warned no-ops, `userId` stays permanently unset;
+  `group()` deliberately unaffected). Added `ProviderEntry.requiresConsent`
+  (`src/routing.ts`) — `shouldRouteToProvider` gained a required
+  `hasConsentFn` parameter, and `identify`/`group`/`alias`'s per-provider
+  dispatch gained the same consent-only check (checked before capability
+  gating, so a denied provider never emits a capability warning) without
+  reopening Phase 7's "no full routing for these three verbs" decision.
+  Added `cookieless` (readonly flag; locked in via a regression test that
+  core touches no storage API regardless) and made `autoUTM` skip its
+  `sessionStorage` read/write under it. Added `piiFilterMiddleware`
+  (`src/middleware/piiFilter.ts`) — recursive, key-name-pattern (substring
+  or `RegExp`) redaction to arbitrary depth through objects/arrays,
+  complementary to (not replacing) Phase 8's exact-path `redactMiddleware`.
+  `reset()` touches none of consent/`enabled`/`anonymousMode`/`cookieless`
+  state — privacy posture is not identity/session state. Shipped
+  `examples/recipes/` (consent-gated-tracking; anonymous-and-cookieless-
+  tracking). Per policy, this phase's issue files stay in
+  `plan/phase-11-privacy-consent/` permanently.
