@@ -181,3 +181,42 @@ are the record, this is just a trail of what happened when.
   `examples/recipes/` (consent-gated-tracking; anonymous-and-cookieless-
   tracking). Per policy, this phase's issue files stay in
   `plan/phase-11-privacy-consent/` permanently.
+- Phase 12 (reliability): `src/reliability/` — a new subdirectory family
+  mirroring `src/plugins/`, holding a fallback storage chain
+  (`createMemoryStorageAdapter`/`createLocalStorageAdapter`/
+  `createIndexedDbStorageAdapter`/`detectBestStorage`, all hand-promisified,
+  zero vendor deps) and a pure queue engine (`createQueueEngine` —
+  priority-desc/FIFO ordering, exponential `computeBackoffDelay`,
+  lowest-priority-then-oldest eviction at `maxQueueSize`, `maxAttempts`
+  dead-lettering) plus a pure `chunkForBatching` batch-window helper. Wired
+  into `createAnalytics({ reliability })` (boolean-or-object, mirroring
+  `devServer`'s shorthand): a proactive offline check
+  (`navigator.onLine === false`) skips a doomed provider call and enqueues
+  directly, while a same-tick provider rejection is now enqueued for retry
+  instead of being permanently lost — `console.warn` still fires
+  immediately, but `onError` middleware notification is deferred to
+  eventual dead-letter (once per event, not once per retry). A background
+  `setInterval` drain loop plus an `online`-event listener retry queued
+  entries per-provider (looked up live by name, per (event, provider)
+  queue-entry granularity); `flush()` now also drains the queue first,
+  bypassing each entry's backoff gate; `destroy()` stops the timer/listener
+  without draining. `analytics.queue` (`size`/`drain`/`clear`) is always
+  present, a true no-op when `reliability` was never configured. Added
+  `TrackOptions.priority` (flat numeric, higher drains first) and
+  `ProviderCapabilities.batch`/`AnalyticsProvider.trackBatch` (distinct
+  from the pre-existing `batching` flag — opts a provider into receiving
+  coalesced `trackBatch(events[])` calls from the drain loop instead of one
+  call per queued event, chunked by `ReliabilityOptions.batch.size`/
+  `intervalMs`, all-or-nothing per chunk). Added `pagehide`-based
+  flush-on-unload (`flushOnUnload`, defaults `true` whenever `reliability`
+  is enabled): a best-effort, non-bookkept, fire-and-forget final attempt —
+  `sendBeacon` for the dev-server mirror specifically, direct
+  provider-method calls otherwise — accepting at-least-once (not
+  exactly-once) delivery on the entries it happens to catch. `identify`/
+  `group`/`alias` remain entirely out of scope (no `CanonicalEvent` to
+  queue), unchanged from every prior phase. Shipped
+  `examples/advanced/offline-resilient-tracking/` (one composed
+  e-commerce flow covering the full surface: offline queueing, retry/
+  backoff, priority ordering, batching, dead-letter exhaustion, and
+  flush-on-unload). Per policy, this phase's issue files stay in
+  `plan/phase-12-reliability/` permanently.
