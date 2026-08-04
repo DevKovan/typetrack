@@ -13,6 +13,8 @@ import type { CanonicalEvent, EventMap, SchemaMap, TrackArgs, TrackOptions } fro
 export type { Middleware } from "./middleware";
 export { redactMiddleware } from "./middleware/redact";
 export type { RedactOptions } from "./middleware/redact";
+export { piiFilterMiddleware } from "./middleware/piiFilter";
+export type { PiiFilterOptions } from "./middleware/piiFilter";
 export { samplingMiddleware } from "./middleware/sampling";
 export type { SamplingOptions } from "./middleware/sampling";
 export { loggingMiddleware } from "./middleware/logging";
