@@ -101,6 +101,19 @@ export interface CreateAnalyticsOptions<Events extends EventMap = EventMap> {
   // effect on their own without `requiredCategories` configured here. See
   // `src/consent.ts` for the full `ConsentOptions` shape.
   consent?: ConsentOptions;
+  // Phase 11 issue 004: opt-in, construction-time-only policy that makes
+  // `identify()`/`alias()` complete no-ops (beyond a one-time `console.warn`
+  // -- see below) for this instance's entire lifetime. `userId` is never
+  // set, even if `identify()` is called. `group()` is deliberately
+  // *unaffected* by this option -- a group (organization/team/account) is
+  // not itself a personal identifier the way `userId` is, so suppressing it
+  // too would be over-broad; an app that also wants to suppress `group()`
+  // must gate that call itself. Defaults to `false` (omitted is zero
+  // behavior change from pre-issue-004). There is no runtime toggle for
+  // this option -- apps that need to switch between anonymous and
+  // identified tracking at runtime should construct a new `Analytics`
+  // instance instead (see `plan/phase-11-privacy-consent/004-anonymous-mode.md`).
+  anonymousMode?: boolean;
 }
 
 // The `analytics.consent` runtime surface -- always present on `Analytics`,
@@ -224,6 +237,15 @@ export function createAnalytics<Events extends EventMap = EventMap>(
   // A single `Set<string>` closure variable naturally provides "per-provider"
   // dedup already, since the key includes `provider.name`.
   const warnedCapabilities = new Set<string>();
+
+  // Phase 11 issue 004: immutable for the instance's lifetime -- captured
+  // once here, never reassigned (no runtime toggle method exists on
+  // `Analytics`). Backs the `identify()`/`alias()` no-op gate below.
+  const anonymousMode = options.anonymousMode ?? false;
+  // Separate key space from `warnedCapabilities` above (different reason: an
+  // instance-level policy choice, not a per-provider capability gap) -- one
+  // warning per verb (`identify`/`alias`), ever, for this instance.
+  const warnedAnonymousMode = new Set<"identify" | "alias">();
 
   // Registered middlewares, in registration order. Populated by `use()`
   // below and consumed by `track`/`page`/`screen` via `runThroughMiddleware`
@@ -608,6 +630,20 @@ export function createAnalytics<Events extends EventMap = EventMap>(
       });
     },
     identify(newUserId, traits) {
+      // Phase 11 issue 004: anonymousMode gate, checked *before* issue 002's
+      // consent gate -- cheapest check first (a single boolean read needs no
+      // consent-state evaluation). Both checks independently produce a
+      // no-op, so the order is unobservable to the caller; this order is
+      // picked purely for consistency/cheapness. A complete no-op beyond a
+      // one-time warning: `userId` is left untouched, no provider is called.
+      if (anonymousMode) {
+        if (!warnedAnonymousMode.has("identify")) {
+          warnedAnonymousMode.add("identify");
+          console.warn("typetrack: anonymousMode is enabled -- identify() call ignored.");
+        }
+        return undefined;
+      }
+
       // Phase 11 issue 002: consent gate, the very first statement -- before
       // even the `userId` reassignment below. When blocked, `userId` is left
       // untouched and no provider call is made.
@@ -678,6 +714,17 @@ export function createAnalytics<Events extends EventMap = EventMap>(
       });
     },
     alias(newUserId, previousUserId) {
+      // Phase 11 issue 004: anonymousMode gate, checked before issue 002's
+      // consent gate -- see identify()'s matching comment above for the
+      // ordering rationale. A complete no-op beyond a one-time warning.
+      if (anonymousMode) {
+        if (!warnedAnonymousMode.has("alias")) {
+          warnedAnonymousMode.add("alias");
+          console.warn("typetrack: anonymousMode is enabled -- alias() call ignored.");
+        }
+        return undefined;
+      }
+
       // Phase 11 issue 002: consent gate, the very first statement.
       if (!isTrackingAllowed()) return undefined;
 

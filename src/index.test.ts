@@ -749,3 +749,176 @@ describe("createAnalytics() enable()/disable()/isEnabled() (Phase 11 issue 003)"
     }
   });
 });
+
+// Integration tests for Phase 11 issue 004: `anonymousMode`'s suppression of
+// `identify()`/`alias()`, `group()` remaining unaffected, and the one-time
+// warning pattern.
+describe("createAnalytics({ anonymousMode }) (Phase 11 issue 004)", () => {
+  const originalConsoleWarn = console.warn;
+
+  afterEach(() => {
+    console.warn = originalConsoleWarn;
+  });
+
+  function stubConsoleWarn() {
+    const warn = mock((..._args: unknown[]) => {});
+    console.warn = warn as unknown as typeof console.warn;
+    return warn;
+  }
+
+  function spyProvider(name = "spy"): AnalyticsProvider & {
+    track: ReturnType<typeof mock>;
+    identify: ReturnType<typeof mock>;
+    group: ReturnType<typeof mock>;
+    alias: ReturnType<typeof mock>;
+  } {
+    return {
+      name,
+      capabilities: allCapabilities,
+      track: mock(() => {}),
+      identify: mock(() => {}),
+      group: mock(() => {}),
+      alias: mock(() => {}),
+    };
+  }
+
+  it("identify() is a complete no-op (single-provider): no provider.identify call, userId stays undefined across a subsequent track()", () => {
+    stubConsoleWarn();
+    const provider = spyProvider();
+    const analytics = createAnalytics({ provider, anonymousMode: true });
+
+    analytics.identify("user-123", { plan: "pro" });
+    expect(provider.identify).not.toHaveBeenCalled();
+
+    analytics.track("evt");
+    const [canonicalEvent] = provider.track.mock.calls[0]!;
+    expect(canonicalEvent.userId).toBeUndefined();
+  });
+
+  it("identify() is a complete no-op (multi-provider fan-out): no provider in the list ever receives identify", async () => {
+    stubConsoleWarn();
+    const providerA = spyProvider("a");
+    const providerB = spyProvider("b");
+    const analytics = createAnalytics({ provider: [providerA, providerB], anonymousMode: true });
+
+    await analytics.identify("user-123", { plan: "pro" });
+    expect(providerA.identify).not.toHaveBeenCalled();
+    expect(providerB.identify).not.toHaveBeenCalled();
+
+    analytics.track("evt");
+    const [canonicalEventA] = providerA.track.mock.calls[0]!;
+    expect(canonicalEventA.userId).toBeUndefined();
+  });
+
+  it("alias() is a complete no-op (single-provider): no provider.alias call", () => {
+    stubConsoleWarn();
+    const provider = spyProvider();
+    const analytics = createAnalytics({ provider, anonymousMode: true });
+
+    analytics.alias("new-id", "old-id");
+    expect(provider.alias).not.toHaveBeenCalled();
+  });
+
+  it("alias() is a complete no-op (multi-provider fan-out): no provider in the list ever receives alias", async () => {
+    stubConsoleWarn();
+    const providerA = spyProvider("a");
+    const providerB = spyProvider("b");
+    const analytics = createAnalytics({ provider: [providerA, providerB], anonymousMode: true });
+
+    await analytics.alias("new-id", "old-id");
+    expect(providerA.alias).not.toHaveBeenCalled();
+    expect(providerB.alias).not.toHaveBeenCalled();
+  });
+
+  it("group() is unaffected (single-provider): the provider's group method is called normally", () => {
+    stubConsoleWarn();
+    const provider = spyProvider();
+    const analytics = createAnalytics({ provider, anonymousMode: true });
+
+    analytics.group("org-1", { plan: "enterprise" });
+
+    expect(provider.group).toHaveBeenCalledTimes(1);
+    expect(provider.group.mock.calls[0]![0]).toBe("org-1");
+    expect(provider.group.mock.calls[0]![1]).toEqual({ plan: "enterprise" });
+  });
+
+  it("group() is unaffected (multi-provider fan-out): every provider's group method is called normally", async () => {
+    stubConsoleWarn();
+    const providerA = spyProvider("a");
+    const providerB = spyProvider("b");
+    const analytics = createAnalytics({ provider: [providerA, providerB], anonymousMode: true });
+
+    await analytics.group("org-1", { plan: "enterprise" });
+
+    expect(providerA.group).toHaveBeenCalledTimes(1);
+    expect(providerB.group).toHaveBeenCalledTimes(1);
+  });
+
+  it("multiple identify() calls: console.warn fires exactly once (first call only)", () => {
+    const warnSpy = stubConsoleWarn();
+    const provider = spyProvider();
+    const analytics = createAnalytics({ provider, anonymousMode: true });
+
+    analytics.identify("user-1");
+    analytics.identify("user-2");
+    analytics.identify("user-3");
+
+    const identifyWarnings = warnSpy.mock.calls.filter((call) =>
+      String(call[0]).includes("identify() call ignored"),
+    );
+    expect(identifyWarnings.length).toBe(1);
+    expect(identifyWarnings[0]![0]).toBe("typetrack: anonymousMode is enabled -- identify() call ignored.");
+  });
+
+  it("multiple alias() calls: console.warn fires exactly once (first call only), separate warning key from identify()", () => {
+    const warnSpy = stubConsoleWarn();
+    const provider = spyProvider();
+    const analytics = createAnalytics({ provider, anonymousMode: true });
+
+    analytics.alias("new-1", "old-1");
+    analytics.alias("new-2", "old-2");
+
+    const aliasWarnings = warnSpy.mock.calls.filter((call) => String(call[0]).includes("alias() call ignored"));
+    expect(aliasWarnings.length).toBe(1);
+    expect(aliasWarnings[0]![0]).toBe("typetrack: anonymousMode is enabled -- alias() call ignored.");
+  });
+
+  it("identify() and alias() each warn once independently, not shared/deduped across each other", () => {
+    const warnSpy = stubConsoleWarn();
+    const provider = spyProvider();
+    const analytics = createAnalytics({ provider, anonymousMode: true });
+
+    analytics.identify("user-1");
+    analytics.alias("new-1", "old-1");
+
+    expect(warnSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it("anonymousMode false/omitted: zero behavior change from pre-issue-004 (regression check)", () => {
+    stubConsoleWarn();
+    const provider = spyProvider();
+    const analytics = createAnalytics({ provider });
+
+    analytics.identify("user-123", { plan: "pro" });
+    expect(provider.identify).toHaveBeenCalledTimes(1);
+
+    analytics.track("evt");
+    const [canonicalEvent] = provider.track.mock.calls[0]!;
+    expect(canonicalEvent.userId).toBe("user-123");
+
+    analytics.alias("new-id", "old-id");
+    expect(provider.alias).toHaveBeenCalledTimes(1);
+
+    analytics.group("org-1");
+    expect(provider.group).toHaveBeenCalledTimes(1);
+  });
+
+  it("anonymousMode: true, explicit false: also zero behavior change (identical to omitted)", () => {
+    stubConsoleWarn();
+    const provider = spyProvider();
+    const analytics = createAnalytics({ provider, anonymousMode: false });
+
+    analytics.identify("user-123");
+    expect(provider.identify).toHaveBeenCalledTimes(1);
+  });
+});
