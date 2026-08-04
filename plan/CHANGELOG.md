@@ -119,3 +119,32 @@ are the record, this is just a trail of what happened when.
   `examples/core/context-capture/` (stubbed browser page-load demo +
   Node-side safe-no-op fallback). Per policy, this phase's issue files stay
   in `plan/phase-9-context/` permanently.
+- Phase 10 (plugins): `createAnalytics({ plugins })` (`src/plugins.ts` +
+  wiring in `src/index.ts`) — a `Plugin` is a bare setup function,
+  `(analytics) => (() => void) | void`, invoked once per array entry at
+  construction with the live instance; an optional returned teardown is
+  collected and run by `destroy()` (registration order, swallow-and-warn
+  on throw) before the existing provider flush/destroy logic, so plugins
+  stop originating events before providers start tearing down. Deliberate
+  separate surface from Phase 8's `.use()`: middleware transforms events
+  already in flight, plugins originate new `track()`/`page()` calls from
+  browser events the app never explicitly fired. `isBrowserEnvironment`
+  (Phase 9) is now exported from the public barrel for plugin authors.
+  Shipped eight built-ins, all browser-only/safe-no-op elsewhere, never
+  throwing: `autoPage` (History-API-driven page views) + a shared
+  `dispatchPageView()` dedup helper it and `@typetrack/next`'s
+  `AnalyticsPageView` both call — the latter refactored onto this shared
+  helper (keeping its own Next-router-driven navigation detection, since
+  that's more accurate than generic History-API watching) instead of
+  duplicating dispatch logic, with zero public-API change and a
+  React-Strict-Mode double-invoke dedup fixed as a side effect;
+  `autoClicks`, `autoScroll`, `autoVisibility` (DOM interaction);
+  `autoErrors`, `autoWebVitals` (hand-rolled FCP/LCP/CLS via
+  `PerformanceObserver`, zero vendor deps), `autoPerformance` (Navigation
+  Timing) (browser telemetry); `autoUTM` (first-touch UTM persistence to
+  `sessionStorage` + a one-shot "Campaign Landing" event — deliberately
+  decoupled from and non-duplicative of Phase 9's existing live
+  per-event `context.campaign` annotation). Shipped `examples/plugins/`
+  (two composed flows: landing-page-engagement, site-reliability-and-vitals
+  — covering all eight plugins). Per policy, this phase's issue files
+  stay in `plan/phase-10-plugins/` permanently.
