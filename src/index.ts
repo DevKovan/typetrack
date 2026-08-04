@@ -9,6 +9,7 @@ import { normalizeProviders, shouldRouteToProvider, sortByPriority } from "./rou
 import type { ProviderEntry } from "./routing";
 import { createQueueEngine } from "./reliability/queue";
 import type { BackoffOptions, QueueEngine } from "./reliability/queue";
+import { chunkForBatching } from "./reliability/batch";
 import {
   createIndexedDbStorageAdapter,
   createLocalStorageAdapter,
@@ -174,10 +175,17 @@ export interface ReliabilityOptions {
   // Exponential backoff schedule (issue 002's `BackoffOptions`) -- see
   // `computeBackoffDelay()` in `src/reliability/queue.ts` for its defaults.
   backoff?: BackoffOptions;
-  // Defined by this issue's type shape but not yet consumed anywhere --
-  // issue 005 wires batching into the drain loop. `{ size: 10, intervalMs:
-  // 5000 }` is this field's documented default under `reliability: true`,
-  // though nothing reads it yet.
+  // Phase 12 issue 005: governs `drainQueueOnce()`'s `trackBatch`
+  // coalescing for batch-capable providers (`ProviderCapabilities.batch`,
+  // `AnalyticsProvider.trackBatch`) -- see that function's doc comment for
+  // the full algorithm. `size` (default 10) is the max number of events per
+  // `trackBatch` call; `intervalMs` (default 5000) is the max time a
+  // partial (< `size`) group's oldest ready entry is allowed to wait before
+  // being sent anyway, approximated per-tick rather than via a genuine
+  // second accumulation timer (see `src/reliability/batch.ts`'s doc
+  // comment). Has no effect on a provider that doesn't declare
+  // `capabilities.batch`/implement `trackBatch` -- that provider is always
+  // drained one entry at a time, exactly as issue 003 specified.
   batch?: { size?: number; intervalMs?: number };
   // Defined by this issue's type shape but not yet consumed anywhere --
   // issue 006 wires a `sendBeacon`-based flush into an unload listener.
@@ -774,10 +782,42 @@ export function createAnalytics<Events extends EventMap = EventMap>(
     }
   }
 
-  // Phase 12 issue 003: drains every currently-"ready" entry once. The
-  // interval tick and the `online` listener both call this with
-  // `bypassBackoff: false` (each entry's own `nextAttemptAt` gate applies,
-  // via `peekReady(Date.now())`); `flush()` calls this with
+  // Phase 12 issue 005 defaults for `ReliabilityOptions.batch` -- see that
+  // field's doc comment above.
+  const DEFAULT_BATCH_SIZE = 10;
+  const DEFAULT_BATCH_INTERVAL_MS = 5000;
+
+  // Phase 12 issue 003: drains a single ready entry (one `track`/`page`/
+  // `screen` call), recording success/failure against `queueEngine`
+  // exactly as before this issue's batching support was added. Used both
+  // by non-batch-capable/single-entry groups below, and is the sole drain
+  // path when batching was never a consideration at all.
+  async function drainSingleEntry(entry: PersistedQueueEntry, provider: AnalyticsProvider): Promise<void> {
+    if (!queueEngine) return;
+    try {
+      if (entry.verb === "track") {
+        await provider.track(entry.event);
+      } else if (entry.verb === "page") {
+        if (!provider.page) {
+          throw new Error(`typetrack: provider "${provider.name}" no longer supports "page()"`);
+        }
+        await provider.page(entry.event);
+      } else {
+        if (!provider.screen) {
+          throw new Error(`typetrack: provider "${provider.name}" no longer supports "screen()"`);
+        }
+        await provider.screen(entry.event);
+      }
+      await queueEngine.recordSuccess(entry.id);
+    } catch (error) {
+      await queueEngine.recordFailure(entry.id, error);
+    }
+  }
+
+  // Phase 12 issue 003 (extended by issue 005): drains every currently-
+  // "ready" entry once. The interval tick and the `online` listener both
+  // call this with `bypassBackoff: false` (each entry's own `nextAttemptAt`
+  // gate applies, via `peekReady(Date.now())`); `flush()` calls this with
   // `bypassBackoff: true` (BRIEF.md decision 8 -- an explicit `flush()` is
   // the app's signal that "now is a good time to try", not something that
   // should wait out a backoff timer). The provider lookup is by name, live,
@@ -785,6 +825,19 @@ export function createAnalytics<Events extends EventMap = EventMap>(
   // time -- so a provider looked up here always reflects the *current*
   // `normalized.entries`, not whatever was configured when the entry was
   // first queued.
+  //
+  // Issue 005: `readyEntries` (already priority/FIFO-sorted by
+  // `peekReady()`) is grouped by `providerName`, preserving that same
+  // relative order within each group. A group is sent through
+  // `provider.trackBatch()` (one call per chunk, chunked via
+  // `chunkForBatching()`) only when the live provider both declares
+  // `capabilities.batch === true` and implements `trackBatch`, *and* the
+  // group has `>= 2` ready entries -- a lone ready entry never goes through
+  // `trackBatch`, matching a non-batch-capable provider's own one-at-a-time
+  // path exactly (`drainSingleEntry`). A `trackBatch` chunk's success/
+  // failure is applied uniformly to every entry in that chunk (no
+  // per-event status exists in the `trackBatch` contract) -- see
+  // `AnalyticsProvider.trackBatch`'s doc comment in `src/providers/index.ts`.
   async function drainQueueOnce(dropOptions?: { bypassBackoff?: boolean }): Promise<void> {
     if (!queueEngine) return;
 
@@ -792,41 +845,68 @@ export function createAnalytics<Events extends EventMap = EventMap>(
       ? queueEngine.peekReady(Number.POSITIVE_INFINITY)
       : queueEngine.peekReady(Date.now());
 
+    const now = Date.now();
+    const batchSize = reliabilityOptions?.batch?.size ?? DEFAULT_BATCH_SIZE;
+    const batchIntervalMs = reliabilityOptions?.batch?.intervalMs ?? DEFAULT_BATCH_INTERVAL_MS;
+
+    // Groups `readyEntries` by `providerName`, preserving the incoming
+    // (priority/FIFO) order within each group -- a plain `Map` naturally
+    // keeps insertion order both across groups and within each group's
+    // array, so no extra sort is needed here.
+    const groups = new Map<string, PersistedQueueEntry[]>();
     for (const entry of readyEntries) {
+      const group = groups.get(entry.providerName);
+      if (group) {
+        group.push(entry);
+      } else {
+        groups.set(entry.providerName, [entry]);
+      }
+    }
+
+    for (const [providerName, groupEntries] of groups) {
       const matchingEntry = normalized.entries.find(
-        (candidate) => candidate.provider.name === entry.providerName,
+        (candidate) => candidate.provider.name === providerName,
       );
 
       if (!matchingEntry) {
         // BRIEF.md decision 3: no instant drop -- this still goes through
         // normal `maxAttempts` exhaustion (via `recordFailure`), keeping the
         // dead-letter/warning path uniform rather than special-casing an
-        // immediate silent drop.
-        await queueEngine.recordFailure(
-          entry.id,
-          new Error(`typetrack: provider "${entry.providerName}" is no longer configured`),
-        );
+        // immediate silent drop. Applied per-entry -- unrelated to
+        // batching (there is no provider to call `trackBatch` on).
+        for (const entry of groupEntries) {
+          await queueEngine.recordFailure(
+            entry.id,
+            new Error(`typetrack: provider "${providerName}" is no longer configured`),
+          );
+        }
         continue;
       }
 
       const provider = matchingEntry.provider;
-      try {
-        if (entry.verb === "track") {
-          await provider.track(entry.event);
-        } else if (entry.verb === "page") {
-          if (!provider.page) {
-            throw new Error(`typetrack: provider "${provider.name}" no longer supports "page()"`);
+      const batchCapable = provider.capabilities.batch === true && typeof provider.trackBatch === "function";
+
+      if (batchCapable && groupEntries.length >= 2) {
+        const chunks = chunkForBatching(groupEntries, batchSize, batchIntervalMs, now);
+        for (const chunk of chunks) {
+          try {
+            await provider.trackBatch!(chunk.map((entry) => entry.event));
+            for (const entry of chunk) {
+              await queueEngine.recordSuccess(entry.id);
+            }
+          } catch (error) {
+            for (const entry of chunk) {
+              await queueEngine.recordFailure(entry.id, error);
+            }
           }
-          await provider.page(entry.event);
-        } else {
-          if (!provider.screen) {
-            throw new Error(`typetrack: provider "${provider.name}" no longer supports "screen()"`);
-          }
-          await provider.screen(entry.event);
         }
-        await queueEngine.recordSuccess(entry.id);
-      } catch (error) {
-        await queueEngine.recordFailure(entry.id, error);
+        continue;
+      }
+
+      // Not batch-capable, or a lone ready entry -- exactly issue 003's
+      // one-call-per-entry path.
+      for (const entry of groupEntries) {
+        await drainSingleEntry(entry, provider);
       }
     }
   }

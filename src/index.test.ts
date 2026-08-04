@@ -1832,4 +1832,211 @@ describe("createAnalytics({ reliability }) (Phase 12 issue 003)", () => {
       await analytics.destroy();
     });
   });
+
+  // Phase 12 issue 005: `ProviderCapabilities.batch` + `AnalyticsProvider.
+  // trackBatch` drain-loop coalescing. Every scenario below enqueues via the
+  // offline-skip path (`stubBrowserOnline(false)`) so entries land in the
+  // queue without the live provider's `track()` ever being called for them
+  // directly -- `analytics.queue.drain()` (backoff-respecting,
+  // `bypassBackoff: false`) is then used to trigger exactly one
+  // `drainQueueOnce()` synchronously, matching this file's existing
+  // reliability-testing conventions (see the top of this describe block's
+  // doc comment).
+  describe("batching (Phase 12 issue 005)", () => {
+    // A batch-capable stub: `capabilities.batch: true` plus a real
+    // `trackBatch` implementation. `failBatches` rejects that many
+    // `trackBatch` calls before subsequent calls succeed (mirrors
+    // `createFlakyProvider`'s `failTimes` convention above). Both `track()`
+    // (used for the size-1 fallback path) and `trackBatch()` record their
+    // calls, so a test can assert exactly which path was taken.
+    function createBatchCapableProvider(
+      name: string,
+      options: { failBatches?: number } = {},
+    ): AnalyticsProvider & { trackCalls: CanonicalEvent[]; batchCalls: CanonicalEvent[][] } {
+      let remainingBatchFailures = options.failBatches ?? 0;
+      const trackCalls: CanonicalEvent[] = [];
+      const batchCalls: CanonicalEvent[][] = [];
+
+      return {
+        name,
+        capabilities: { ...allCapabilities, batch: true },
+        trackCalls,
+        batchCalls,
+        track: (event) => {
+          trackCalls.push(event);
+          return Promise.resolve();
+        },
+        trackBatch: (events) => {
+          batchCalls.push(events);
+          if (remainingBatchFailures > 0) {
+            remainingBatchFailures -= 1;
+            return Promise.reject(new Error(`${name}: simulated batch failure`));
+          }
+          return Promise.resolve();
+        },
+      };
+    }
+
+    it("3 ready entries for a batch-capable provider (batch.size: 3, so the size threshold is met immediately): exactly one trackBatch call with all 3 events in drain order, no individual track() calls", async () => {
+      stubBrowserOnline(false);
+      const provider = createBatchCapableProvider("batchy");
+      const analytics = createAnalytics({ provider, reliability: { batch: { size: 3 } } });
+
+      await analytics.track("e1");
+      await analytics.track("e2");
+      await analytics.track("e3");
+      expect(analytics.queue.size()).toBe(3);
+
+      await analytics.queue.drain();
+
+      expect(provider.batchCalls).toHaveLength(1);
+      expect(provider.batchCalls[0]!.map((e) => e.name)).toEqual(["e1", "e2", "e3"]);
+      expect(provider.trackCalls).toHaveLength(0);
+      expect(analytics.queue.size()).toBe(0);
+
+      await analytics.destroy();
+    });
+
+    it("only 1 ready entry for the same batch-capable provider: falls back to a single track() call, trackBatch is never called", async () => {
+      stubBrowserOnline(false);
+      const provider = createBatchCapableProvider("batchy");
+      const analytics = createAnalytics({ provider, reliability: { batch: { size: 3 } } });
+
+      await analytics.track("only-one");
+      expect(analytics.queue.size()).toBe(1);
+
+      await analytics.queue.drain();
+
+      expect(provider.trackCalls).toHaveLength(1);
+      expect(provider.trackCalls[0]!.name).toBe("only-one");
+      expect(provider.batchCalls).toHaveLength(0);
+      expect(analytics.queue.size()).toBe(0);
+
+      await analytics.destroy();
+    });
+
+    it("a provider without capabilities.batch/trackBatch always drains one event at a time, regardless of ready count (exactly issue 003's pre-this-issue behavior)", async () => {
+      stubBrowserOnline(false);
+      const provider = createFlakyProvider("plain"); // allCapabilities has no `batch` field -> falsy
+      const analytics = createAnalytics({ provider, reliability: true });
+
+      await analytics.track("e1");
+      await analytics.track("e2");
+      await analytics.track("e3");
+      expect(analytics.queue.size()).toBe(3);
+
+      await analytics.queue.drain();
+
+      // No `trackBatch` exists on this provider at all -- every entry can
+      // only ever have been delivered via an individual `track()` call.
+      expect(provider.trackCalls).toHaveLength(3);
+      expect(provider.trackCalls.map((e) => e.name)).toEqual(["e1", "e2", "e3"]);
+      expect(analytics.queue.size()).toBe(0);
+
+      await analytics.destroy();
+    });
+
+    it("batch.size: 2 with 5 ready entries: 3 trackBatch calls of sizes 2, 2, 1 -- verifies chunking", async () => {
+      stubBrowserOnline(false);
+      const provider = createBatchCapableProvider("batchy");
+      const analytics = createAnalytics({ provider, reliability: { batch: { size: 2 } } });
+
+      for (const name of ["e1", "e2", "e3", "e4", "e5"]) {
+        await analytics.track(name);
+      }
+      expect(analytics.queue.size()).toBe(5);
+
+      await analytics.queue.drain();
+
+      expect(provider.batchCalls).toHaveLength(3);
+      expect(provider.batchCalls.map((chunk) => chunk.length)).toEqual([2, 2, 1]);
+      expect(provider.batchCalls.map((chunk) => chunk.map((e) => e.name))).toEqual([
+        ["e1", "e2"],
+        ["e3", "e4"],
+        ["e5"],
+      ]);
+      expect(analytics.queue.size()).toBe(0);
+
+      await analytics.destroy();
+    });
+
+    it("a trackBatch rejection: every event in that chunk gets recordFailure (matches issue 002's per-entry backoff/attempts bookkeeping)", async () => {
+      stubBrowserOnline(false);
+      // The one and only trackBatch call (all 3 events, since batch.size: 3
+      // meets the size threshold immediately) fails once, then succeeds.
+      const provider = createBatchCapableProvider("batchy", { failBatches: 1 });
+      const analytics = createAnalytics({ provider, reliability: { batch: { size: 3 } } });
+
+      await analytics.track("e1");
+      await analytics.track("e2");
+      await analytics.track("e3");
+      expect(analytics.queue.size()).toBe(3);
+
+      await analytics.queue.drain();
+      expect(provider.batchCalls).toHaveLength(1);
+      // Every event in the failed chunk was recordFailure'd -- none
+      // dead-lettered yet (attempts: 1 < default maxAttempts: 5) -- all 3
+      // remain queued, now backoff-gated (nextAttemptAt: now + 2000ms
+      // default backoff).
+      expect(analytics.queue.size()).toBe(3);
+
+      // Immediately retrying (no time advanced) respects each entry's own
+      // backoff gate -- exactly as issue 002's engine would do for any
+      // individually-failed entry -- so nothing new is attempted yet.
+      await analytics.queue.drain();
+      expect(provider.batchCalls).toHaveLength(1);
+      expect(analytics.queue.size()).toBe(3);
+
+      // Once the backoff window elapses, the same group is retried as one
+      // batch again -- this time it succeeds (failBatches exhausted).
+      jest.advanceTimersByTime(2000);
+      await analytics.queue.drain();
+      expect(provider.batchCalls).toHaveLength(2);
+      expect(provider.batchCalls[1]!.map((e) => e.name)).toEqual(["e1", "e2", "e3"]);
+      expect(analytics.queue.size()).toBe(0);
+
+      await analytics.destroy();
+    });
+
+    // `batch.intervalMs`'s wait-check. Implementor's choice (documented in
+    // `src/reliability/batch.ts`'s `chunkForBatching()` doc comment): when a
+    // partial group (below `batch.size`) hasn't waited `intervalMs` yet,
+    // this implementation leaves the group entirely un-batched for that
+    // tick -- it does NOT fall back to draining it individually either
+    // (rationale: that would defeat batching for any provider that rarely
+    // accumulates a full-size batch in a single tick). The entries simply
+    // stay queued, ready, until either more accumulate or `intervalMs`
+    // elapses for the oldest one.
+    it("batch.intervalMs wait-check: a partial group not yet old enough is left un-batched this tick; once intervalMs elapses, it's sent as one (still-partial) batch on the next tick", async () => {
+      stubBrowserOnline(false);
+      const provider = createBatchCapableProvider("batchy");
+      // Default batch.size (10) is never met by these 2 entries -- only the
+      // intervalMs wait-check can trigger a send.
+      const analytics = createAnalytics({ provider, reliability: { batch: { intervalMs: 5000 } } });
+
+      await analytics.track("e1");
+      await analytics.track("e2");
+      expect(analytics.queue.size()).toBe(2);
+
+      // No time has elapsed since these were enqueued -- neither the size
+      // threshold (2 < 10) nor the age threshold (0ms < 5000ms) is met.
+      await analytics.queue.drain();
+      expect(provider.batchCalls).toHaveLength(0);
+      expect(provider.trackCalls).toHaveLength(0);
+      expect(analytics.queue.size()).toBe(2);
+
+      // Advancing fake time by exactly intervalMs both ages the oldest
+      // entry past the threshold AND fires the background drain tick
+      // (DRAIN_INTERVAL_MS is also 5000ms) -- the next tick sends the still-
+      // partial (2-entry) group as one trackBatch call.
+      jest.advanceTimersByTime(5000);
+      await flushAsync();
+
+      expect(provider.batchCalls).toHaveLength(1);
+      expect(provider.batchCalls[0]!.map((e) => e.name)).toEqual(["e1", "e2"]);
+      expect(analytics.queue.size()).toBe(0);
+
+      await analytics.destroy();
+    });
+  });
 });
