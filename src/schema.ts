@@ -23,6 +23,17 @@ export interface CanonicalEvent {
 export interface TrackOptions {
   context?: Record<string, unknown>;
   metadata?: Record<string, unknown>;
+  // Phase 12 issue 004: opt-in queue-drain priority, only observable when
+  // `reliability` is enabled *and* the event in question actually gets
+  // queued (offline, or a failed provider call) -- for the common case
+  // (the provider call succeeds immediately), this has no effect at all,
+  // since the event never touches the queue. Defaults to `0` when omitted,
+  // matching issue 003's pre-this-issue hardcoded behavior. Higher values
+  // drain first; ties are broken oldest-first (see issue 002's
+  // `peekReady` ordering). A single flat numeric field, not a named-level
+  // vocabulary (`"low"`/`"high"`) -- an app can establish its own
+  // convention (e.g. "10 for purchase events, 0 for page views").
+  priority?: number;
 }
 
 // Maps event names to their payload shape. A value of `undefined` marks a

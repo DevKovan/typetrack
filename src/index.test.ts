@@ -1711,4 +1711,125 @@ describe("createAnalytics({ reliability }) (Phase 12 issue 003)", () => {
     expect(() => analytics.queue.clear()).not.toThrow();
     expect(analytics.queue.size()).toBe(0);
   });
+
+  // Phase 12 issue 004: `TrackOptions.priority` threading. Issue 002's own
+  // unit tests (`src/reliability/queue.test.ts`) already cover the engine's
+  // `peekReady` priority-ordering/sort-stability logic in isolation -- these
+  // tests only assert that the real, caller-supplied `priority` value
+  // actually reaches `queueEngine.enqueue()` from `track()`/`page()`/
+  // `screen()`'s call sites, rather than the issue-003 hardcoded `0`. Every
+  // test below asserts this indirectly via an observable drain-order effect
+  // (a stub provider's recorded call order), per the issue's "implementor's
+  // choice of how to assert this without reaching into private engine
+  // internals" instruction -- never by inspecting `queueEngine` internals
+  // directly.
+  describe("priority option threading (Phase 12 issue 004)", () => {
+    it("track(): a higher explicit priority drains before a default-priority (0) entry queued earlier, offline", async () => {
+      stubBrowserOnline(false);
+      const provider = createFlakyProvider("solo");
+      const analytics = createAnalytics({ provider, reliability: true });
+
+      await analytics.track("first"); // no options -- defaults to priority 0
+      await analytics.track("second", undefined, { priority: 5 });
+
+      expect(provider.trackCalls).toHaveLength(0); // offline-skip: never called yet
+      expect(analytics.queue.size()).toBe(2);
+
+      await analytics.queue.drain();
+
+      expect(provider.trackCalls.map((event) => event.name)).toEqual(["second", "first"]);
+      expect(analytics.queue.size()).toBe(0);
+
+      await analytics.destroy();
+    });
+
+    it("page(): priority threads through identically to track()", async () => {
+      stubBrowserOnline(false);
+      const provider = createFlakyProvider("solo");
+      const analytics = createAnalytics({ provider, reliability: true });
+
+      await analytics.page("first"); // no options -- defaults to priority 0
+      await analytics.page("second", undefined, { priority: 5 });
+
+      expect(provider.pageCalls).toHaveLength(0);
+      expect(analytics.queue.size()).toBe(2);
+
+      await analytics.queue.drain();
+
+      expect(provider.pageCalls.map((event) => event.name)).toEqual(["second", "first"]);
+      expect(analytics.queue.size()).toBe(0);
+
+      await analytics.destroy();
+    });
+
+    it("screen(): priority threads through identically to track()", async () => {
+      stubBrowserOnline(false);
+      const provider = createFlakyProvider("solo");
+      const analytics = createAnalytics({ provider, reliability: true });
+
+      await analytics.screen("first"); // no options -- defaults to priority 0
+      await analytics.screen("second", undefined, { priority: 5 });
+
+      expect(provider.screenCalls).toHaveLength(0);
+      expect(analytics.queue.size()).toBe(2);
+
+      await analytics.queue.drain();
+
+      expect(provider.screenCalls.map((event) => event.name)).toEqual(["second", "first"]);
+      expect(analytics.queue.size()).toBe(0);
+
+      await analytics.destroy();
+    });
+
+    it("two queued events with different priority, both offline, then brought back online: the higher-priority one's provider call happens first during drain", async () => {
+      const { triggerOnline } = stubBrowserOnline(false);
+      const provider = createFlakyProvider("solo");
+      const analytics = createAnalytics({ provider, reliability: true });
+
+      await analytics.track("low-priority-event", undefined, { priority: 1 });
+      await analytics.track("high-priority-event", undefined, { priority: 10 });
+
+      expect(provider.trackCalls).toHaveLength(0);
+      expect(analytics.queue.size()).toBe(2);
+
+      // The `online` listener triggers an immediate drain (issue 003) --
+      // note that `drainQueueOnce()` itself never re-checks `isOffline()`,
+      // it just drains whatever is ready, so toggling `navigator.onLine`
+      // back to `true` isn't required for this to succeed.
+      triggerOnline();
+      await flushAsync();
+
+      expect(provider.trackCalls.map((event) => event.name)).toEqual([
+        "high-priority-event",
+        "low-priority-event",
+      ]);
+      expect(analytics.queue.size()).toBe(0);
+
+      await analytics.destroy();
+    });
+
+    it("no priority passed: defaults to 0, byte-for-byte matching issue 003's pre-this-issue hardcoded behavior (regression)", async () => {
+      stubBrowserOnline(false);
+      const provider = createFlakyProvider("solo");
+      const analytics = createAnalytics({ provider, reliability: true });
+
+      // A lower explicit priority is enqueued first; a no-options call
+      // (defaulting to priority 0) is enqueued second. If the default were
+      // still effectively "0" (as it was pre-this-issue, hardcoded), the
+      // second (higher, default-0) entry drains first despite being queued
+      // later -- proving the omitted-priority call site really does default
+      // to 0, not to something else entirely.
+      await analytics.track("explicit-low", undefined, { priority: -5 });
+      await analytics.track("no-options");
+
+      expect(analytics.queue.size()).toBe(2);
+
+      await analytics.queue.drain();
+
+      expect(provider.trackCalls.map((event) => event.name)).toEqual(["no-options", "explicit-low"]);
+      expect(analytics.queue.size()).toBe(0);
+
+      await analytics.destroy();
+    });
+  });
 });

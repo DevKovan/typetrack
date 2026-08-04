@@ -536,17 +536,18 @@ export function createAnalytics<Events extends EventMap = EventMap>(
     verb: "track" | "page" | "screen",
     event: CanonicalEvent,
     call: () => void | Promise<void>,
+    priority: number,
   ): void | Promise<void> {
     function handleFailure(error: unknown): Promise<void> {
       console.warn(`typetrack: provider "${entry.provider.name}" failed during "${verb}()" -- ${error}`);
       if (queueEngine) {
-        return enqueueEvent({ providerName: entry.provider.name, verb, event, priority: 0 });
+        return enqueueEvent({ providerName: entry.provider.name, verb, event, priority });
       }
       return notifyOnError(middlewares, error, event, { source: "provider", providerName: entry.provider.name });
     }
 
     if (queueEngine && isOffline()) {
-      return enqueueEvent({ providerName: entry.provider.name, verb, event, priority: 0 });
+      return enqueueEvent({ providerName: entry.provider.name, verb, event, priority });
     }
 
     try {
@@ -956,9 +957,14 @@ export function createAnalytics<Events extends EventMap = EventMap>(
       return runThroughMiddleware(canonicalEvent, (evt) => {
         // `track()` is never capability-gated -- `AnalyticsProvider.track`
         // is a required (non-optional) field, always called directly.
+        // Phase 12 issue 004: threaded from `track()`'s `trackOptions`
+        // argument -- falls back to `0` when the caller didn't pass one,
+        // matching issue 003's pre-this-issue hardcoded behavior exactly.
+        const priority = trackOptions?.priority ?? 0;
+
         if (!normalized.isMulti) {
           const entry = normalized.entries[0]!;
-          return callSingleProvider(entry, "track", evt, () => entry.provider.track(evt));
+          return callSingleProvider(entry, "track", evt, () => entry.provider.track(evt), priority);
         }
 
         const sorted = sortByPriority(normalized.entries);
@@ -978,7 +984,7 @@ export function createAnalytics<Events extends EventMap = EventMap>(
             // provider misconfiguration). Dead when `queueEngine` is
             // `undefined` (reliability disabled/omitted).
             if (queueEngine && isOffline()) {
-              return enqueueEvent({ providerName: entry.provider.name, verb: "track", event: evt, priority: 0 });
+              return enqueueEvent({ providerName: entry.provider.name, verb: "track", event: evt, priority });
             }
             return entry.provider.track(evt);
           },
@@ -989,7 +995,7 @@ export function createAnalytics<Events extends EventMap = EventMap>(
             // up. Dead when `queueEngine` is `undefined`, in which case this
             // is byte-for-byte the pre-Phase-12 `notifyOnError` call.
             if (queueEngine) {
-              return enqueueEvent({ providerName: entry.provider.name, verb: "track", event: evt, priority: 0 });
+              return enqueueEvent({ providerName: entry.provider.name, verb: "track", event: evt, priority });
             }
             return notifyOnError(middlewares, error, evt, { source: "provider", providerName: entry.provider.name });
           },
@@ -1057,10 +1063,14 @@ export function createAnalytics<Events extends EventMap = EventMap>(
       const canonicalEvent = buildEvent(name, props, pageOptions);
 
       return runThroughMiddleware(canonicalEvent, (evt) => {
+        // Phase 12 issue 004: threaded from `page()`'s `pageOptions`
+        // argument -- see `track()`'s matching comment above.
+        const priority = pageOptions?.priority ?? 0;
+
         if (!normalized.isMulti) {
           const entry = normalized.entries[0]!;
           if (!isCapabilitySupported(entry, "page")) return;
-          return callSingleProvider(entry, "page", evt, () => entry.provider.page?.(evt));
+          return callSingleProvider(entry, "page", evt, () => entry.provider.page?.(evt), priority);
         }
 
         const sorted = sortByPriority(normalized.entries);
@@ -1073,7 +1083,7 @@ export function createAnalytics<Events extends EventMap = EventMap>(
             // Phase 12 issue 003: offline-skip -- see `track()`'s matching
             // comment above for the full rationale.
             if (queueEngine && isOffline()) {
-              return enqueueEvent({ providerName: entry.provider.name, verb: "page", event: evt, priority: 0 });
+              return enqueueEvent({ providerName: entry.provider.name, verb: "page", event: evt, priority });
             }
             return entry.provider.page?.(evt);
           },
@@ -1081,7 +1091,7 @@ export function createAnalytics<Events extends EventMap = EventMap>(
             // Phase 12 issue 003: enqueue-for-retry instead of an immediate
             // `notifyOnError` -- see `track()`'s matching comment above.
             if (queueEngine) {
-              return enqueueEvent({ providerName: entry.provider.name, verb: "page", event: evt, priority: 0 });
+              return enqueueEvent({ providerName: entry.provider.name, verb: "page", event: evt, priority });
             }
             return notifyOnError(middlewares, error, evt, { source: "provider", providerName: entry.provider.name });
           },
@@ -1145,10 +1155,14 @@ export function createAnalytics<Events extends EventMap = EventMap>(
       const canonicalEvent = buildEvent(name, props, screenOptions);
 
       return runThroughMiddleware(canonicalEvent, (evt) => {
+        // Phase 12 issue 004: threaded from `screen()`'s `screenOptions`
+        // argument -- see `track()`'s matching comment above.
+        const priority = screenOptions?.priority ?? 0;
+
         if (!normalized.isMulti) {
           const entry = normalized.entries[0]!;
           if (!isCapabilitySupported(entry, "screen")) return;
-          return callSingleProvider(entry, "screen", evt, () => entry.provider.screen?.(evt));
+          return callSingleProvider(entry, "screen", evt, () => entry.provider.screen?.(evt), priority);
         }
 
         const sorted = sortByPriority(normalized.entries);
@@ -1161,7 +1175,7 @@ export function createAnalytics<Events extends EventMap = EventMap>(
             // Phase 12 issue 003: offline-skip -- see `track()`'s matching
             // comment above for the full rationale.
             if (queueEngine && isOffline()) {
-              return enqueueEvent({ providerName: entry.provider.name, verb: "screen", event: evt, priority: 0 });
+              return enqueueEvent({ providerName: entry.provider.name, verb: "screen", event: evt, priority });
             }
             return entry.provider.screen?.(evt);
           },
@@ -1169,7 +1183,7 @@ export function createAnalytics<Events extends EventMap = EventMap>(
             // Phase 12 issue 003: enqueue-for-retry instead of an immediate
             // `notifyOnError` -- see `track()`'s matching comment above.
             if (queueEngine) {
-              return enqueueEvent({ providerName: entry.provider.name, verb: "screen", event: evt, priority: 0 });
+              return enqueueEvent({ providerName: entry.provider.name, verb: "screen", event: evt, priority });
             }
             return notifyOnError(middlewares, error, evt, { source: "provider", providerName: entry.provider.name });
           },
