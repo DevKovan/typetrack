@@ -1,4 +1,4 @@
-import { captureDynamicContext, captureStaticContext } from "./context";
+import { captureDynamicContext, captureStaticContext, isBrowserEnvironment } from "./context";
 import type { ContextOptions } from "./context";
 import { hasConsent, isConsentedForCategories, isConsentedForProvider, resolveDefaultState } from "./consent";
 import type { ConsentCategory, ConsentOptions, ConsentState } from "./consent";
@@ -7,6 +7,15 @@ import type { Plugin } from "./plugins";
 import { noopProvider, type AnalyticsProvider, type ProviderCapabilities } from "./providers";
 import { normalizeProviders, shouldRouteToProvider, sortByPriority } from "./routing";
 import type { ProviderEntry } from "./routing";
+import { createQueueEngine } from "./reliability/queue";
+import type { BackoffOptions, QueueEngine } from "./reliability/queue";
+import {
+  createIndexedDbStorageAdapter,
+  createLocalStorageAdapter,
+  createMemoryStorageAdapter,
+  detectBestStorage,
+} from "./reliability/storage";
+import type { PersistedQueueEntry, QueueStorageAdapter } from "./reliability/storage";
 import { EventValidationError } from "./schema";
 import type { CanonicalEvent, EventMap, SchemaMap, TrackArgs, TrackOptions } from "./schema";
 
@@ -48,6 +57,7 @@ export { autoPerformance } from "./plugins/autoPerformance";
 export type { PagePerformanceProperties } from "./plugins/autoPerformance";
 export { autoUTM } from "./plugins/autoUTM";
 export type { AutoUTMOptions } from "./plugins/autoUTM";
+export type { BackoffOptions } from "./reliability/queue";
 
 export interface CreateAnalyticsOptions<Events extends EventMap = EventMap> {
   // A single bare provider keeps exact Phase 6 passthrough behavior (no
@@ -127,6 +137,65 @@ export interface CreateAnalyticsOptions<Events extends EventMap = EventMap> {
   // `false` (omitted is zero behavior change). See
   // `plan/phase-11-privacy-consent/006-cookieless-mode-and-autoutm.md`.
   cookieless?: boolean;
+  // Phase 12 issue 003: opt-in offline queue/retry/dead-letter for
+  // `track`/`page`/`screen` (only -- `identify`/`group`/`alias` keep
+  // pre-Phase-12 fire-and-forget behavior, per
+  // `plan/phase-12-reliability/BRIEF.md`'s scope boundary). Omitted entirely
+  // (the default) is zero behavior change from pre-Phase-12: a failed
+  // provider call is still `console.warn`ed + immediately `onError`-notified
+  // + swallowed, with no queue, no persistence, no retry, and no offline
+  // detection anywhere. `true` is shorthand for every `ReliabilityOptions`
+  // field taking its documented default. See
+  // `plan/phase-12-reliability/003-reliability-wiring.md`.
+  reliability?: boolean | ReliabilityOptions;
+}
+
+// Phase 12 issue 003: the object form of `CreateAnalyticsOptions.reliability`
+// -- mirrors `devServer?: boolean | { url? }`'s shorthand-or-object shape
+// exactly. `batch`/`flushOnUnload` are defined here (this issue's own type
+// shape) but deliberately unconsumed by this issue -- issue 005 wires
+// `batch` into the drain loop, issue 006 wires `flushOnUnload` into a
+// `sendBeacon`-based unload flush. `true` (the boolean shorthand) is
+// equivalent to `{}` here: every field below is resolved against its own
+// documented default by whatever consumes it (`detectBestStorage`,
+// `createQueueEngine`), so no field-by-field defaulting happens in this
+// type/its resolver -- see `resolveReliabilityOptions()`.
+export interface ReliabilityOptions {
+  // `"auto"` (the default) probes IndexedDB -> localStorage -> memory via
+  // `detectBestStorage` (`src/reliability/storage.ts`). An explicit value
+  // selects that backend's adapter factory directly, skipping the probe.
+  storage?: "auto" | "indexeddb" | "localstorage" | "memory";
+  // Bounded queue size (issue 002's `maxQueueSize`, default 100) -- see
+  // BRIEF.md decision 6 (drop-oldest-lowest-priority on overflow).
+  maxQueueSize?: number;
+  // Retry attempts before an entry is dead-lettered (issue 002's
+  // `maxAttempts`, default 5) -- see BRIEF.md decision 5.
+  maxAttempts?: number;
+  // Exponential backoff schedule (issue 002's `BackoffOptions`) -- see
+  // `computeBackoffDelay()` in `src/reliability/queue.ts` for its defaults.
+  backoff?: BackoffOptions;
+  // Defined by this issue's type shape but not yet consumed anywhere --
+  // issue 005 wires batching into the drain loop. `{ size: 10, intervalMs:
+  // 5000 }` is this field's documented default under `reliability: true`,
+  // though nothing reads it yet.
+  batch?: { size?: number; intervalMs?: number };
+  // Defined by this issue's type shape but not yet consumed anywhere --
+  // issue 006 wires a `sendBeacon`-based flush into an unload listener.
+  // Documented default (`true`) under `reliability: true`, though nothing
+  // reads it yet.
+  flushOnUnload?: boolean;
+}
+
+// The `analytics.queue` runtime surface -- always present on `Analytics`
+// (BRIEF.md decision 7), independent of whether the `reliability`
+// construction option was ever supplied. `size()` is always `0` and
+// `drain()`/`clear()` are complete no-ops when `reliability` was never
+// enabled -- there is never anything to queue in that case, so the surface
+// stays uniform rather than `consent`-style-optional.
+export interface QueueController {
+  size(): number;
+  drain(): Promise<void>;
+  clear(): void;
 }
 
 // The `analytics.consent` runtime surface -- always present on `Analytics`,
@@ -165,6 +234,21 @@ function resolveContextOptions(
   if (!context) return undefined;
   if (context === true) return { autoCapture: true };
   return context.autoCapture ? context : undefined;
+}
+
+// Mirrors `resolveDevServerUrl`/`resolveContextOptions`'s normalization
+// pattern exactly. `undefined` is the single "reliability is off" signal the
+// rest of `createAnalytics()` checks (via `queueEngine`'s own presence,
+// below) -- `true` resolves to `{}` since every individual field is given
+// its documented default by whichever consumer reads it (`detectBestStorage`
+// for `storage`, `createQueueEngine` for `maxQueueSize`/`maxAttempts`/
+// `backoff`), not by this resolver itself.
+function resolveReliabilityOptions(
+  reliability: CreateAnalyticsOptions["reliability"],
+): ReliabilityOptions | undefined {
+  if (!reliability) return undefined;
+  if (reliability === true) return {};
+  return reliability;
 }
 
 // The five verbs whose behavior depends on whether the resolved provider
@@ -214,6 +298,12 @@ export interface Analytics<Events extends EventMap = EventMap> {
   // instance they're already handed at setup time to decide whether to
   // skip their own storage writes.
   readonly cookieless: boolean;
+  // Phase 12 issue 003: always present (non-optional), regardless of
+  // whether `reliability` was supplied at construction -- mirrors
+  // `consent` above's always-present precedent (BRIEF.md decision 7). See
+  // `QueueController`'s doc comment for the no-op behavior when
+  // `reliability` was never enabled.
+  queue: QueueController;
 }
 
 export function createAnalytics<Events extends EventMap = EventMap>(
@@ -424,15 +514,39 @@ export function createAnalytics<Events extends EventMap = EventMap>(
   // passes through untouched -- no extra microtask tick, no forced `Promise`
   // wrapping, preserving the fast path's zero-overhead contract for the
   // non-failing case.
+  //
+  // Phase 12 issue 003: `verb` is narrowed from `string` to the three
+  // literal verbs this function is ever actually called with (`track`/
+  // `page`/`screen` -- `identify`/`group`/`alias`/`reset` never call this
+  // function at all, only `dispatchToProviders`/direct calls do), since a
+  // queued entry (`PersistedQueueEntry.verb`) needs that literal type. Two
+  // reliability behaviors are added, both gated on `queueEngine` being
+  // defined (i.e. `reliability` was enabled) -- with `reliability`
+  // disabled/omitted, `queueEngine` is `undefined` and every branch below
+  // is dead code, so behavior is byte-for-byte unchanged from
+  // pre-Phase-12: (1) an offline-skip before `call()` is even attempted
+  // (silent -- no `console.warn`, being offline isn't a provider
+  // misconfiguration); (2) on failure, the existing `console.warn` still
+  // fires, but the immediate `notifyOnError` call is replaced by an
+  // `enqueue()` for retry -- `onDeadLetter` (constructed above) is the only
+  // path that still notifies middleware, deferred until the queue actually
+  // gives up.
   function callSingleProvider(
     entry: ProviderEntry,
-    verb: string,
+    verb: "track" | "page" | "screen",
     event: CanonicalEvent,
     call: () => void | Promise<void>,
   ): void | Promise<void> {
     function handleFailure(error: unknown): Promise<void> {
       console.warn(`typetrack: provider "${entry.provider.name}" failed during "${verb}()" -- ${error}`);
+      if (queueEngine) {
+        return enqueueEvent({ providerName: entry.provider.name, verb, event, priority: 0 });
+      }
       return notifyOnError(middlewares, error, event, { source: "provider", providerName: entry.provider.name });
+    }
+
+    if (queueEngine && isOffline()) {
+      return enqueueEvent({ providerName: entry.provider.name, verb, event, priority: 0 });
     }
 
     try {
@@ -584,6 +698,205 @@ export function createAnalytics<Events extends EventMap = EventMap>(
     })();
   }
 
+  // ---------------------------------------------------------------------
+  // Phase 12 issue 003: reliability (offline queue/retry/dead-letter)
+  // construction-time wiring. Everything in this section is a no-op when
+  // `options.reliability` was never supplied/truthy -- `queueEngine` stays
+  // `undefined`, and every call site below that reads it (`isOffline()`
+  // gates on it too) degrades to exactly pre-Phase-12 behavior.
+  // ---------------------------------------------------------------------
+
+  const reliabilityOptions = resolveReliabilityOptions(options.reliability);
+
+  // `undefined` until (and unless) the block below constructs one -- every
+  // call site treats "`queueEngine` is `undefined`" as the single source of
+  // truth for "reliability is off", rather than re-checking
+  // `reliabilityOptions` independently.
+  let queueEngine: QueueEngine | undefined;
+  let drainIntervalHandle: ReturnType<typeof setInterval> | undefined;
+  let onlineListener: (() => void) | undefined;
+  // Resolves once `queueEngine.hydrate()` (fire-and-forget, kicked off
+  // below) settles -- `hydrate()` never rejects (issue 002's own contract:
+  // a hydration failure is caught internally and logged, `entries` falls
+  // back to `[]`), so this is safe to `.then()` off of unconditionally.
+  // `undefined` until the reliability block below assigns it.
+  let hydratePromise: Promise<void> | undefined;
+
+  // Phase 12 issue 003: every `queueEngine.enqueue()` call in this file
+  // goes through this wrapper rather than calling `queueEngine.enqueue()`
+  // directly -- necessary to avoid a genuine race against `hydrate()`
+  // (also fire-and-forget): `hydrate()`'s `entries = await storage.load()`
+  // unconditionally *replaces* the in-memory queue array once storage
+  // finishes loading. Without this sequencing, an `enqueue()` call that
+  // happens to synchronously mutate `entries` *before* that reassignment
+  // resolves (e.g. an offline-skip on the very first `track()` call,
+  // microtask-scheduled right alongside `hydrate()`'s own kickoff) would
+  // have its freshly-pushed entry silently clobbered back out by
+  // `hydrate()`'s stale pre-load snapshot landing afterwards. Chaining
+  // every `enqueue()` off of `hydratePromise` guarantees hydration's
+  // one-time reassignment always happens-before any of this session's own
+  // enqueues, so nothing pushed during a session is ever lost -- this is
+  // strictly about *this* session's own writes; it does not change (and is
+  // not needed for) the already-documented, accepted "prior-session
+  // entries may not be visible for the first few hundred milliseconds"
+  // tradeoff of `hydrate()` itself being fire-and-forget.
+  function enqueueEvent(
+    entry: Omit<PersistedQueueEntry, "id" | "attempts" | "enqueuedAt" | "nextAttemptAt">,
+  ): Promise<void> {
+    if (!queueEngine) return Promise.resolve();
+    const engine = queueEngine;
+    return (hydratePromise ?? Promise.resolve()).then(() => engine.enqueue(entry));
+  }
+
+  // Phase 12 issue 003: a drain tick independent of any individual entry's
+  // own `nextAttemptAt` backoff (`peekReady`'s own filtering enforces
+  // that) -- 5s is a reasonable balance between promptness and needless
+  // polling for a queue whose whole purpose is bridging brief offline
+  // gaps/transient failures, not a tight real-time delivery guarantee.
+  const DRAIN_INTERVAL_MS = 5000;
+
+  // Phase 12 issue 003: best-effort, never-throws offline check -- mirrors
+  // Phase 11's `detectBrowserPrivacySignal` convention (see
+  // `src/consent.ts`) exactly: outside a browser environment, or when
+  // `navigator.onLine` is unavailable/`true`, this is never considered
+  // offline. `navigator` isn't an ambient type here (no `"dom"` in this
+  // package's `tsconfig.json` `lib`, see `src/context.ts`'s header
+  // comment) -- read via the same ad-hoc-minimal-shape-off-`globalThis`
+  // convention as every other browser-global read in this codebase.
+  function isOffline(): boolean {
+    try {
+      if (!isBrowserEnvironment()) return false;
+      const navigator = (globalThis as { navigator?: { onLine?: boolean } }).navigator;
+      return navigator?.onLine === false;
+    } catch {
+      return false;
+    }
+  }
+
+  // Phase 12 issue 003: drains every currently-"ready" entry once. The
+  // interval tick and the `online` listener both call this with
+  // `bypassBackoff: false` (each entry's own `nextAttemptAt` gate applies,
+  // via `peekReady(Date.now())`); `flush()` calls this with
+  // `bypassBackoff: true` (BRIEF.md decision 8 -- an explicit `flush()` is
+  // the app's signal that "now is a good time to try", not something that
+  // should wait out a backoff timer). The provider lookup is by name, live,
+  // every call (design decision) -- not a reference captured at enqueue
+  // time -- so a provider looked up here always reflects the *current*
+  // `normalized.entries`, not whatever was configured when the entry was
+  // first queued.
+  async function drainQueueOnce(dropOptions?: { bypassBackoff?: boolean }): Promise<void> {
+    if (!queueEngine) return;
+
+    const readyEntries = dropOptions?.bypassBackoff
+      ? queueEngine.peekReady(Number.POSITIVE_INFINITY)
+      : queueEngine.peekReady(Date.now());
+
+    for (const entry of readyEntries) {
+      const matchingEntry = normalized.entries.find(
+        (candidate) => candidate.provider.name === entry.providerName,
+      );
+
+      if (!matchingEntry) {
+        // BRIEF.md decision 3: no instant drop -- this still goes through
+        // normal `maxAttempts` exhaustion (via `recordFailure`), keeping the
+        // dead-letter/warning path uniform rather than special-casing an
+        // immediate silent drop.
+        await queueEngine.recordFailure(
+          entry.id,
+          new Error(`typetrack: provider "${entry.providerName}" is no longer configured`),
+        );
+        continue;
+      }
+
+      const provider = matchingEntry.provider;
+      try {
+        if (entry.verb === "track") {
+          await provider.track(entry.event);
+        } else if (entry.verb === "page") {
+          if (!provider.page) {
+            throw new Error(`typetrack: provider "${provider.name}" no longer supports "page()"`);
+          }
+          await provider.page(entry.event);
+        } else {
+          if (!provider.screen) {
+            throw new Error(`typetrack: provider "${provider.name}" no longer supports "screen()"`);
+          }
+          await provider.screen(entry.event);
+        }
+        await queueEngine.recordSuccess(entry.id);
+      } catch (error) {
+        await queueEngine.recordFailure(entry.id, error);
+      }
+    }
+  }
+
+  if (reliabilityOptions) {
+    // Phase 12 issue 003: a per-instance stable prefix, generated once here
+    // and reused for both the storage key (localStorage) and DB/store name
+    // (IndexedDB) for this instance's entire lifetime. `CreateAnalyticsOptions`
+    // has no app-supplied stable identifier for an `Analytics` instance
+    // today (no `name`/`appId`-style option exists anywhere), so a random
+    // suffix generated once at construction is this issue's chosen scheme --
+    // it keeps two simultaneously-constructed `Analytics` instances in the
+    // same app from silently sharing (and corrupting) one another's
+    // persisted queue.
+    const instancePrefix = `typetrack-${crypto.randomUUID()}`;
+
+    const storageKind = reliabilityOptions.storage ?? "auto";
+    const storage: QueueStorageAdapter =
+      storageKind === "indexeddb"
+        ? createIndexedDbStorageAdapter(`${instancePrefix}-queue`, "queue")
+        : storageKind === "localstorage"
+          ? createLocalStorageAdapter(`${instancePrefix}-queue`)
+          : storageKind === "memory"
+            ? createMemoryStorageAdapter()
+            : detectBestStorage(instancePrefix);
+
+    queueEngine = createQueueEngine({
+      storage,
+      maxQueueSize: reliabilityOptions.maxQueueSize,
+      maxAttempts: reliabilityOptions.maxAttempts,
+      backoff: reliabilityOptions.backoff,
+      onDeadLetter(entry, reason) {
+        // Deferred `notifyOnError` (issue 003 design decision): fires
+        // exactly once, at exhaustion -- never on an intermediate retry
+        // attempt. Reuses the exact same `notifyOnError` helper
+        // `callSingleProvider`/`dispatchToProviders` already call for a
+        // same-tick failure, so a dead-lettered event surfaces through the
+        // identical middleware `onError` channel, just later.
+        void notifyOnError(middlewares, reason, entry.event, {
+          source: "provider",
+          providerName: entry.providerName,
+        });
+      },
+    });
+
+    // Fire-and-forget (issue 003 design decision): `createAnalytics()`
+    // stays synchronous -- every prior phase's contract. This means a
+    // freshly-constructed instance's queue may not reflect prior-session
+    // persisted entries for the first few hundred milliseconds after
+    // construction; the background drain loop's first tick (or an
+    // immediate `flush()`/`analytics.queue.drain()` call) naturally picks
+    // up whatever hydration completed by then. Documented tradeoff, not a
+    // bug. `hydratePromise` is still captured (not discarded) so
+    // `enqueueEvent()` above can sequence this session's own enqueues
+    // after it -- see that function's comment for why.
+    hydratePromise = queueEngine.hydrate();
+
+    drainIntervalHandle = setInterval(() => {
+      void drainQueueOnce();
+    }, DRAIN_INTERVAL_MS);
+
+    // Coming back online should not wait for the next timer tick.
+    if (isBrowserEnvironment()) {
+      onlineListener = () => {
+        void drainQueueOnce();
+      };
+      (globalThis as { window?: { addEventListener?: (type: string, listener: () => void) => void } }).window
+        ?.addEventListener?.("online", onlineListener);
+    }
+  }
+
   const analytics: Analytics<Events> = {
     track(event, ...args) {
       // Phase 11 issue 002: consent gate, the very first statement --
@@ -660,10 +973,26 @@ export function createAnalytics<Events extends EventMap = EventMap>(
             // `evt` is the post-`before`-chain event -- routing sees the
             // (possibly transformed) event, never the pre-middleware one.
             if (!shouldRouteToProvider(entry, evt, hasConsentForCategory)) return;
+            // Phase 12 issue 003: offline-skip, checked before attempting the
+            // call at all -- silent (no console.warn; being offline isn't a
+            // provider misconfiguration). Dead when `queueEngine` is
+            // `undefined` (reliability disabled/omitted).
+            if (queueEngine && isOffline()) {
+              return enqueueEvent({ providerName: entry.provider.name, verb: "track", event: evt, priority: 0 });
+            }
             return entry.provider.track(evt);
           },
-          (entry, error) =>
-            notifyOnError(middlewares, error, evt, { source: "provider", providerName: entry.provider.name }),
+          (entry, error) => {
+            // Phase 12 issue 003: on failure, enqueue for retry instead of
+            // immediately notifying middleware -- `onDeadLetter` (constructed
+            // above) defers that notification until the queue actually gives
+            // up. Dead when `queueEngine` is `undefined`, in which case this
+            // is byte-for-byte the pre-Phase-12 `notifyOnError` call.
+            if (queueEngine) {
+              return enqueueEvent({ providerName: entry.provider.name, verb: "track", event: evt, priority: 0 });
+            }
+            return notifyOnError(middlewares, error, evt, { source: "provider", providerName: entry.provider.name });
+          },
         );
       });
     },
@@ -741,10 +1070,21 @@ export function createAnalytics<Events extends EventMap = EventMap>(
           (entry) => {
             if (!shouldRouteToProvider(entry, evt, hasConsentForCategory)) return;
             if (!isCapabilitySupported(entry, "page")) return;
+            // Phase 12 issue 003: offline-skip -- see `track()`'s matching
+            // comment above for the full rationale.
+            if (queueEngine && isOffline()) {
+              return enqueueEvent({ providerName: entry.provider.name, verb: "page", event: evt, priority: 0 });
+            }
             return entry.provider.page?.(evt);
           },
-          (entry, error) =>
-            notifyOnError(middlewares, error, evt, { source: "provider", providerName: entry.provider.name }),
+          (entry, error) => {
+            // Phase 12 issue 003: enqueue-for-retry instead of an immediate
+            // `notifyOnError` -- see `track()`'s matching comment above.
+            if (queueEngine) {
+              return enqueueEvent({ providerName: entry.provider.name, verb: "page", event: evt, priority: 0 });
+            }
+            return notifyOnError(middlewares, error, evt, { source: "provider", providerName: entry.provider.name });
+          },
         );
       });
     },
@@ -818,10 +1158,21 @@ export function createAnalytics<Events extends EventMap = EventMap>(
           (entry) => {
             if (!shouldRouteToProvider(entry, evt, hasConsentForCategory)) return;
             if (!isCapabilitySupported(entry, "screen")) return;
+            // Phase 12 issue 003: offline-skip -- see `track()`'s matching
+            // comment above for the full rationale.
+            if (queueEngine && isOffline()) {
+              return enqueueEvent({ providerName: entry.provider.name, verb: "screen", event: evt, priority: 0 });
+            }
             return entry.provider.screen?.(evt);
           },
-          (entry, error) =>
-            notifyOnError(middlewares, error, evt, { source: "provider", providerName: entry.provider.name }),
+          (entry, error) => {
+            // Phase 12 issue 003: enqueue-for-retry instead of an immediate
+            // `notifyOnError` -- see `track()`'s matching comment above.
+            if (queueEngine) {
+              return enqueueEvent({ providerName: entry.provider.name, verb: "screen", event: evt, priority: 0 });
+            }
+            return notifyOnError(middlewares, error, evt, { source: "provider", providerName: entry.provider.name });
+          },
         );
       });
     },
@@ -848,6 +1199,19 @@ export function createAnalytics<Events extends EventMap = EventMap>(
       return dispatchToProviders(normalized.entries, "reset", (entry) => entry.provider.reset?.());
     },
     async flush() {
+      // Phase 12 issue 003 / BRIEF.md decision 8: an explicit `flush()` call
+      // drains the reliability queue immediately, bypassing every entry's
+      // own `nextAttemptAt` backoff gate (`drainQueueOnce({ bypassBackoff:
+      // true })` calls `peekReady(Number.POSITIVE_INFINITY)` rather than
+      // `peekReady(Date.now())`) -- an app calling `flush()` is signaling
+      // "now is a good time to try", not something that should wait out a
+      // backoff timer. Runs before the existing per-provider `flush()`
+      // calls below. A no-op when `queueEngine` is `undefined` (reliability
+      // disabled/omitted).
+      if (queueEngine) {
+        await drainQueueOnce({ bypassBackoff: true });
+      }
+
       if (!normalized.isMulti) {
         await normalized.entries[0]!.provider.flush?.();
         return;
@@ -878,6 +1242,25 @@ export function createAnalytics<Events extends EventMap = EventMap>(
         } catch (error) {
           console.warn(`typetrack: a plugin's teardown threw during destroy() -- ${error}`);
         }
+      }
+
+      // Phase 12 issue 003 / BRIEF.md decision 8: stops the background
+      // drain timer and removes the `online` listener -- does *not* itself
+      // call `drainQueueOnce()` (an app tearing down isn't necessarily
+      // online/able to flush; draining here would silently attempt network
+      // calls mid-teardown). Any still-queued entries are left in storage
+      // -- a future `createAnalytics()` construction against the same
+      // storage picks them back up (BRIEF.md decision 9). No-op when
+      // reliability was never enabled (both handles stay `undefined`).
+      if (drainIntervalHandle !== undefined) {
+        clearInterval(drainIntervalHandle);
+        drainIntervalHandle = undefined;
+      }
+      if (onlineListener) {
+        (
+          globalThis as { window?: { removeEventListener?: (type: string, listener: () => void) => void } }
+        ).window?.removeEventListener?.("online", onlineListener);
+        onlineListener = undefined;
       }
 
       // Drain first, then tear down, per provider. Not capability-gated.
@@ -941,6 +1324,23 @@ export function createAnalytics<Events extends EventMap = EventMap>(
     // Phase 11 issue 006: plain readonly property, set once here and never
     // reassigned -- see `Analytics.cookieless`'s doc comment.
     cookieless,
+    // Phase 12 issue 003: always present -- see `QueueController`'s doc
+    // comment. `size()`/`drain()`/`clear()` are all complete no-ops when
+    // `queueEngine` is `undefined` (reliability disabled/omitted):
+    // `size()` returns `0`, `drain()` resolves immediately (`drainQueueOnce`
+    // itself no-ops on an `undefined` `queueEngine`), `clear()` does
+    // nothing.
+    queue: {
+      size() {
+        return queueEngine?.size() ?? 0;
+      },
+      async drain() {
+        await drainQueueOnce();
+      },
+      clear() {
+        void queueEngine?.clear();
+      },
+    },
   };
 
   // Plugins are invoked once, in array order, here -- after `analytics` is

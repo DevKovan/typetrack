@@ -1,8 +1,9 @@
-import { afterEach, describe, expect, it, mock } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it, jest, mock } from "bun:test";
 import { createAnalytics } from "./index";
 import type { Analytics } from "./index";
 import type { Plugin } from "./plugins";
 import type { AnalyticsProvider } from "./providers";
+import type { CanonicalEvent } from "./schema";
 import { allCapabilities } from "./test-support";
 
 describe("createAnalytics", () => {
@@ -1284,5 +1285,430 @@ describe("createAnalytics({ cookieless }) (Phase 11 issue 006)", () => {
     expect(spies.sessionStorageSetItem).not.toHaveBeenCalled();
     expect(spies.cookieGet).not.toHaveBeenCalled();
     expect(spies.cookieSet).not.toHaveBeenCalled();
+  });
+});
+
+// Integration tests for Phase 12 issue 003: wiring `reliability` into
+// `createAnalytics()` -- offline detection, failure-path enqueue, the
+// background drain loop, and `analytics.queue`. Issues 001/002's own pure
+// logic already have their own unit tests (`src/reliability/storage.test.ts`,
+// `src/reliability/queue.test.ts`) -- this describe block covers the wiring
+// only, per this issue's "Test requirements" ("no new unit tests beyond
+// issues 001/002's own").
+//
+// Test-hook mechanism (documented per the issue's "implementor's choice"):
+// this whole describe block runs under `jest.useFakeTimers()` (Bun's
+// jest-compat fake timer support) -- both `Date.now()` (controls each
+// entry's own `nextAttemptAt` backoff gate) and `setInterval` (the
+// background drain tick) become deterministically advanceable via
+// `jest.advanceTimersByTime()`, with zero real waiting. A handful of tests
+// additionally use `analytics.queue.drain()`/`analytics.flush()` directly
+// (both real, public API surface -- not test-only shims) as a second,
+// synchronous way to trigger exactly one `drainQueueOnce()`, since that
+// distinguishes the backoff-respecting path (`queue.drain()`) from the
+// backoff-bypassing path (`flush()`, BRIEF.md decision 8) far more directly
+// than waiting for the interval tick to happen to align with a real clock.
+describe("createAnalytics({ reliability }) (Phase 12 issue 003)", () => {
+  const originalConsoleWarn = console.warn;
+
+  beforeEach(() => {
+    jest.useFakeTimers();
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+    console.warn = originalConsoleWarn;
+    for (const key of ["window", "navigator", "localStorage"] as const) {
+      delete (globalThis as Record<string, unknown>)[key];
+    }
+  });
+
+  function stubConsoleWarn() {
+    const warn = mock((..._args: unknown[]) => {});
+    console.warn = warn as unknown as typeof console.warn;
+    return warn;
+  }
+
+  // A small, controllable `AnalyticsProvider` test double: `failTimes`
+  // rejections for each verb, then every subsequent call to that verb
+  // succeeds. Every attempted call (whether it ultimately fails or
+  // succeeds) is recorded in the matching `*Calls` array, so a test can
+  // assert both "how many times was this verb attempted" and "was it
+  // attempted at all" (the offline-skip tests assert zero attempts).
+  function createFlakyProvider(
+    name: string,
+    options: { failTimes?: number } = {},
+  ): AnalyticsProvider & {
+    trackCalls: CanonicalEvent[];
+    pageCalls: CanonicalEvent[];
+    screenCalls: CanonicalEvent[];
+  } {
+    let remainingFailures = options.failTimes ?? 0;
+    const trackCalls: CanonicalEvent[] = [];
+    const pageCalls: CanonicalEvent[] = [];
+    const screenCalls: CanonicalEvent[] = [];
+
+    function attempt(event: CanonicalEvent, calls: CanonicalEvent[]): Promise<void> {
+      calls.push(event);
+      if (remainingFailures > 0) {
+        remainingFailures -= 1;
+        return Promise.reject(new Error(`${name}: simulated failure`));
+      }
+      return Promise.resolve();
+    }
+
+    return {
+      name,
+      capabilities: allCapabilities,
+      trackCalls,
+      pageCalls,
+      screenCalls,
+      track: (event) => attempt(event, trackCalls),
+      page: (event) => attempt(event, pageCalls),
+      screen: (event) => attempt(event, screenCalls),
+    };
+  }
+
+  // Stubs a browser environment with a controllable `navigator.onLine` and
+  // spy `window.addEventListener`/`removeEventListener` -- `triggerOnline()`
+  // invokes whichever listener(s) were registered for the `"online"` type
+  // directly (matching `autoErrors.test.ts`'s precedent of invoking a
+  // captured listener directly rather than constructing a real DOM Event).
+  function stubBrowserOnline(online: boolean): {
+    addEventListener: ReturnType<typeof mock>;
+    removeEventListener: ReturnType<typeof mock>;
+    triggerOnline: () => void;
+  } {
+    const addEventListener = mock((_type: string, _listener: () => void) => {});
+    const removeEventListener = mock((_type: string, _listener: () => void) => {});
+
+    Object.defineProperty(globalThis, "window", {
+      value: { addEventListener, removeEventListener },
+      configurable: true,
+      writable: true,
+    });
+    Object.defineProperty(globalThis, "navigator", {
+      value: { onLine: online },
+      configurable: true,
+      writable: true,
+    });
+
+    function triggerOnline(): void {
+      for (const call of addEventListener.mock.calls) {
+        if (call[0] === "online") {
+          (call[1] as () => void)();
+        }
+      }
+    }
+
+    return { addEventListener, removeEventListener, triggerOnline };
+  }
+
+  // Lets a handful of pending microtasks (queue-engine `await`s spawned by a
+  // fire-and-forget `void drainQueueOnce()` call from the interval tick /
+  // `online` listener) settle before assertions run. `jest.advanceTimersByTime`
+  // itself only fires the timer callback synchronously -- it does not wait
+  // for that callback's own internal `await` chain to resolve.
+  async function flushAsync(): Promise<void> {
+    for (let i = 0; i < 10; i++) {
+      await Promise.resolve();
+    }
+  }
+
+  it("reliability omitted: single-provider failure is byte-for-byte pre-Phase-12 behavior (regression)", async () => {
+    const warn = stubConsoleWarn();
+    const boom = new Error("boom");
+    const onError = mock(() => {});
+    const provider: AnalyticsProvider = {
+      name: "flaky",
+      capabilities: allCapabilities,
+      track: () => Promise.reject(boom),
+    };
+    const analytics = createAnalytics({ provider });
+    analytics.use({ name: "spy", onError });
+
+    await analytics.track("event");
+
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(analytics.queue.size()).toBe(0);
+  });
+
+  it("reliability omitted: multi-provider failure is byte-for-byte pre-Phase-12 behavior (regression)", async () => {
+    const warn = stubConsoleWarn();
+    const boom = new Error("boom");
+    const onError = mock(() => {});
+    const failing: AnalyticsProvider = {
+      name: "failing",
+      capabilities: allCapabilities,
+      track: () => Promise.reject(boom),
+    };
+    const healthy: AnalyticsProvider = { name: "healthy", capabilities: allCapabilities, track: mock(() => {}) };
+    const analytics = createAnalytics({ provider: [failing, healthy] });
+    analytics.use({ name: "spy", onError });
+
+    await analytics.track("event");
+
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(analytics.queue.size()).toBe(0);
+  });
+
+  it("reliability: true, offline (navigator.onLine === false): track() never calls the provider, queue.size() increases by one, no console.warn", async () => {
+    const warn = stubConsoleWarn();
+    stubBrowserOnline(false);
+    const provider = createFlakyProvider("solo");
+    const analytics = createAnalytics({ provider, reliability: true });
+
+    await analytics.track("event");
+
+    expect(provider.trackCalls).toHaveLength(0);
+    expect(analytics.queue.size()).toBe(1);
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it("reliability: true, offline, multi-provider fan-out: the offline provider is skipped and queued per-entry, an unaffected provider is called normally", async () => {
+    stubBrowserOnline(false);
+    const offlineProvider = createFlakyProvider("offline-target");
+    const alwaysOnProvider = createFlakyProvider("always-on");
+    const analytics = createAnalytics({ provider: [offlineProvider, alwaysOnProvider], reliability: true });
+
+    await analytics.track("event");
+
+    expect(offlineProvider.trackCalls).toHaveLength(0);
+    expect(alwaysOnProvider.trackCalls).toHaveLength(0);
+    // Both providers are offline (there's no per-provider network state --
+    // `isOffline()` is instance-wide) -- both entries are queued.
+    expect(analytics.queue.size()).toBe(2);
+  });
+
+  it("reliability: true, provider online but track() rejects: console.warn still fires, notifyOnError is NOT called immediately, queue.size() increases by one", async () => {
+    const warn = stubConsoleWarn();
+    const onError = mock(() => {});
+    const provider = createFlakyProvider("flaky", { failTimes: 1 });
+    const analytics = createAnalytics({ provider, reliability: true });
+    analytics.use({ name: "spy", onError });
+
+    await analytics.track("event");
+
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(onError).not.toHaveBeenCalled();
+    expect(analytics.queue.size()).toBe(1);
+  });
+
+  it("reliability: true, multi-provider fan-out failure: console.warn still fires, notifyOnError is NOT called immediately, queue.size() increases by one", async () => {
+    const warn = stubConsoleWarn();
+    const onError = mock(() => {});
+    const failing = createFlakyProvider("failing", { failTimes: 1 });
+    const healthy = createFlakyProvider("healthy");
+    const analytics = createAnalytics({ provider: [failing, healthy], reliability: true });
+    analytics.use({ name: "spy", onError });
+
+    await analytics.track("event");
+
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(onError).not.toHaveBeenCalled();
+    expect(analytics.queue.size()).toBe(1);
+    expect(healthy.trackCalls).toHaveLength(1);
+  });
+
+  it("background drain tick (setInterval, real production path): a queued entry that now succeeds is removed from the queue (recordSuccess)", async () => {
+    const provider = createFlakyProvider("solo", { failTimes: 1 });
+    const analytics = createAnalytics({ provider, reliability: true });
+
+    await analytics.track("event");
+    expect(analytics.queue.size()).toBe(1);
+    expect(provider.trackCalls).toHaveLength(1);
+
+    // Advances past the fixed 5s drain-tick interval -- independent of any
+    // entry's own `nextAttemptAt` (a freshly-enqueued entry's
+    // `nextAttemptAt` is `now`, so it's already "ready" the moment it's
+    // enqueued).
+    jest.advanceTimersByTime(5000);
+    await flushAsync();
+
+    expect(provider.trackCalls).toHaveLength(2);
+    expect(analytics.queue.size()).toBe(0);
+
+    await analytics.destroy();
+  });
+
+  it("analytics.queue.drain() manually triggers exactly one drainQueueOnce() pass, respecting each entry's own backoff gate", async () => {
+    const provider = createFlakyProvider("solo", { failTimes: 1 });
+    const analytics = createAnalytics({ provider, reliability: true });
+
+    await analytics.track("event");
+    await analytics.queue.drain();
+
+    expect(provider.trackCalls).toHaveLength(2);
+    expect(analytics.queue.size()).toBe(0);
+
+    await analytics.destroy();
+  });
+
+  it("the browser online event triggers an immediate drain, without waiting for the next timer tick", async () => {
+    const { triggerOnline } = stubBrowserOnline(true);
+    const provider = createFlakyProvider("solo", { failTimes: 1 });
+    const analytics = createAnalytics({ provider, reliability: true });
+
+    await analytics.track("event");
+    expect(analytics.queue.size()).toBe(1);
+
+    triggerOnline();
+    await flushAsync();
+
+    expect(provider.trackCalls).toHaveLength(2);
+    expect(analytics.queue.size()).toBe(0);
+
+    await analytics.destroy();
+  });
+
+  it("repeated failures through maxAttempts: onDeadLetter/notifyOnError fires exactly once, at exhaustion, not on every intermediate attempt", async () => {
+    const onError = mock(() => {});
+    // Never succeeds -- forces every retry through `recordFailure` until
+    // `maxAttempts` (2, for a short test) is exhausted.
+    const provider = createFlakyProvider("always-fails", { failTimes: Number.POSITIVE_INFINITY });
+    const analytics = createAnalytics({ provider, reliability: { maxAttempts: 2 } });
+    analytics.use({ name: "spy", onError });
+
+    await analytics.track("event"); // initial failure -> enqueued (attempts: 0)
+    expect(onError).not.toHaveBeenCalled();
+    expect(analytics.queue.size()).toBe(1);
+
+    // First retry (via the interval tick) -> fails -> recordFailure ->
+    // attempts: 1 (< maxAttempts: 2) -> still queued, not yet dead-lettered.
+    jest.advanceTimersByTime(5000);
+    await flushAsync();
+    expect(onError).not.toHaveBeenCalled();
+    expect(analytics.queue.size()).toBe(1);
+
+    // Second retry -> fails -> recordFailure -> attempts: 2 (>= maxAttempts:
+    // 2) -> dead-lettered: entry removed, onDeadLetter -> notifyOnError
+    // fires exactly once.
+    jest.advanceTimersByTime(5000);
+    await flushAsync();
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(analytics.queue.size()).toBe(0);
+
+    // A further tick has nothing left to retry -- onError stays at exactly
+    // one call, never incremented again.
+    jest.advanceTimersByTime(5000);
+    await flushAsync();
+    expect(onError).toHaveBeenCalledTimes(1);
+
+    await analytics.destroy();
+  });
+
+  it("flush() drains the queue immediately, bypassing an entry's own backoff gate (BRIEF.md decision 8)", async () => {
+    // Fails on the initial track() call and on the first retry; succeeds on
+    // the third attempt (the flush()-triggered one).
+    const provider = createFlakyProvider("flaky", { failTimes: 2 });
+    const analytics = createAnalytics({ provider, reliability: true });
+
+    await analytics.track("event"); // attempt 1: fails -> enqueued (nextAttemptAt: now)
+    expect(provider.trackCalls).toHaveLength(1);
+
+    await analytics.queue.drain(); // attempt 2: fails -> recordFailure -> nextAttemptAt: now + 2000ms (default backoff)
+    expect(provider.trackCalls).toHaveLength(2);
+    expect(analytics.queue.size()).toBe(1);
+
+    // The backoff window has NOT elapsed (fake time is frozen -- no
+    // `jest.advanceTimersByTime` call since the last failure) -- a
+    // backoff-respecting drain must not retry yet.
+    await analytics.queue.drain();
+    expect(provider.trackCalls).toHaveLength(2); // unchanged: still gated
+    expect(analytics.queue.size()).toBe(1);
+
+    // `flush()` bypasses that same gate and retries immediately -- this
+    // attempt succeeds (failTimes exhausted).
+    await analytics.flush();
+    expect(provider.trackCalls).toHaveLength(3);
+    expect(analytics.queue.size()).toBe(0);
+
+    await analytics.destroy();
+  });
+
+  it("destroy() stops the background drain timer -- no further drain attempts occur after destroy(), verified by advancing time post-destroy -- and destroy() itself never drains", async () => {
+    // Always fails -- so there's still exactly one queued, unretried entry
+    // at the moment `destroy()` is called, giving the timer something it
+    // would otherwise (incorrectly) act on afterwards.
+    const provider = createFlakyProvider("solo", { failTimes: Number.POSITIVE_INFINITY });
+    const analytics = createAnalytics({ provider, reliability: true });
+
+    await analytics.track("event"); // fails -> enqueued
+    expect(provider.trackCalls).toHaveLength(1);
+    expect(analytics.queue.size()).toBe(1);
+
+    await analytics.destroy();
+
+    // `destroy()` itself never drains (BRIEF.md decision 8) -- the entry is
+    // left exactly as it was, still queued.
+    expect(provider.trackCalls).toHaveLength(1);
+    expect(analytics.queue.size()).toBe(1);
+
+    jest.advanceTimersByTime(5000 * 3);
+    await flushAsync();
+
+    // Nothing new was attempted -- the background timer no longer fires at
+    // all after destroy().
+    expect(provider.trackCalls).toHaveLength(1);
+    expect(analytics.queue.size()).toBe(1);
+  });
+
+  it("a second Analytics instance constructed against the same resolved storage location hydrates entries a first, now-destroyed instance had persisted", async () => {
+    // A single-slot fake `localStorage`: `getItem`/`setItem`/`removeItem`
+    // ignore whatever key they're called with and always read/write one
+    // shared underlying value. This is the test's chosen mechanism for
+    // making cross-instance persistence deterministic "without relying on
+    // the internal auto-generated prefix scheme" (each `Analytics`
+    // instance's storage key is a random per-instance suffix -- see
+    // `src/index.ts`'s reliability construction comment -- so two
+    // independently-constructed instances would otherwise use two
+    // different, unpredictable keys; this fake storage backend makes that
+    // distinction irrelevant for the purpose of this test).
+    let stored: string | null = null;
+    const getItem = mock((_key: string) => stored);
+    const setItem = mock((_key: string, value: string) => {
+      stored = value;
+    });
+    const removeItem = mock((_key: string) => {
+      stored = null;
+    });
+    Object.defineProperty(globalThis, "localStorage", {
+      value: { getItem, setItem, removeItem },
+      configurable: true,
+      writable: true,
+    });
+
+    const providerA = createFlakyProvider("shared-provider", { failTimes: Number.POSITIVE_INFINITY });
+    const analytics1 = createAnalytics({ provider: providerA, reliability: { storage: "localstorage" } });
+
+    await analytics1.track("event");
+    expect(analytics1.queue.size()).toBe(1);
+    await analytics1.destroy();
+
+    const providerB = createFlakyProvider("shared-provider"); // same `name` -- succeeds on drain
+    const analytics2 = createAnalytics({ provider: providerB, reliability: { storage: "localstorage" } });
+
+    // `hydrate()` is fire-and-forget (issue 003 design decision) -- give it
+    // a few microtask turns to complete before asserting.
+    await flushAsync();
+
+    expect(analytics2.queue.size()).toBe(1);
+
+    await analytics2.queue.drain();
+    expect(providerB.trackCalls).toHaveLength(1);
+    expect(analytics2.queue.size()).toBe(0);
+
+    await analytics2.destroy();
+  });
+
+  it("analytics.queue is present and no-op when reliability was never configured", async () => {
+    const analytics = createAnalytics();
+
+    expect(analytics.queue.size()).toBe(0);
+    await expect(analytics.queue.drain()).resolves.toBeUndefined();
+    expect(() => analytics.queue.clear()).not.toThrow();
+    expect(analytics.queue.size()).toBe(0);
   });
 });
