@@ -121,6 +121,12 @@ describe("sortByPriority + shouldRouteToProvider integration", () => {
     };
   }
 
+  // Phase 11 issue 005: `shouldRouteToProvider`'s 3rd parameter is required.
+  // None of these entries set `requiresConsent`, so the consent check is
+  // vacuously `true` regardless -- `alwaysConsented` preserves this file's
+  // pre-issue-005 behavior exactly.
+  const alwaysConsented = () => true;
+
   const ga4 = makeProvider("ga4"); // bare-equivalent: no routing config, priority unset (0)
   const segment = makeProvider("segment"); // include, priority 2
   const posthog = makeProvider("posthog"); // exclude, priority -1
@@ -163,7 +169,7 @@ describe("sortByPriority + shouldRouteToProvider integration", () => {
 
       const decisions = sorted.map((entry) => ({
         provider: entry.provider.name,
-        routed: shouldRouteToProvider(entry, event),
+        routed: shouldRouteToProvider(entry, event, alwaysConsented),
       }));
 
       const expectedMixpanelPredicate = properties.plan === "pro";
@@ -199,19 +205,19 @@ describe("sortByPriority + shouldRouteToProvider integration", () => {
     });
     const sorted = sortByPriority(rawEntries);
 
-    expect(shouldRouteToProvider(sorted[0]!, event)).toBe(true); // posthog: not excluded
-    expect(shouldRouteToProvider(sorted[1]!, event)).toBe(true); // ga4: no config
-    expect(shouldRouteToProvider(sorted[2]!, event)).toBe(isSampledIn("user-A", 0.5)); // mixpanel: predicate passes, AND sampling
-    expect(shouldRouteToProvider(sorted[3]!, event)).toBe(true); // segment: matches "purchase*"
+    expect(shouldRouteToProvider(sorted[0]!, event, alwaysConsented)).toBe(true); // posthog: not excluded
+    expect(shouldRouteToProvider(sorted[1]!, event, alwaysConsented)).toBe(true); // ga4: no config
+    expect(shouldRouteToProvider(sorted[2]!, event, alwaysConsented)).toBe(isSampledIn("user-A", 0.5)); // mixpanel: predicate passes, AND sampling
+    expect(shouldRouteToProvider(sorted[3]!, event, alwaysConsented)).toBe(true); // segment: matches "purchase*"
   });
 
   it("hand-computed: 'internal.debug' is blocked from posthog (exclude) and segment (no include match), routes to ga4, blocked from mixpanel (predicate fails)", () => {
     const event = makeEvent({ name: "internal.debug", anonymousId: "user-B", properties: {} });
     const sorted = sortByPriority(rawEntries);
 
-    expect(shouldRouteToProvider(sorted[0]!, event)).toBe(false); // posthog: excluded
-    expect(shouldRouteToProvider(sorted[1]!, event)).toBe(true); // ga4: no config
-    expect(shouldRouteToProvider(sorted[2]!, event)).toBe(false); // mixpanel: predicate fails (no plan)
-    expect(shouldRouteToProvider(sorted[3]!, event)).toBe(false); // segment: no include match
+    expect(shouldRouteToProvider(sorted[0]!, event, alwaysConsented)).toBe(false); // posthog: excluded
+    expect(shouldRouteToProvider(sorted[1]!, event, alwaysConsented)).toBe(true); // ga4: no config
+    expect(shouldRouteToProvider(sorted[2]!, event, alwaysConsented)).toBe(false); // mixpanel: predicate fails (no plan)
+    expect(shouldRouteToProvider(sorted[3]!, event, alwaysConsented)).toBe(false); // segment: no include match
   });
 });

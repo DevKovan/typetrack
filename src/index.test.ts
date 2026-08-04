@@ -922,3 +922,236 @@ describe("createAnalytics({ anonymousMode }) (Phase 11 issue 004)", () => {
     expect(provider.identify).toHaveBeenCalledTimes(1);
   });
 });
+
+// Integration tests for Phase 11 issue 005: per-provider `requiresConsent`
+// (`ProviderEntry.requiresConsent`), evaluated independently of any global
+// `requiredCategories` gate (issue 002) -- see `src/routing.ts`'s
+// `shouldRouteToProvider` and `src/consent.ts`'s `isConsentedForProvider`.
+describe("createAnalytics() provider-aware consent gating (ProviderEntry.requiresConsent) (Phase 11 issue 005)", () => {
+  const originalConsoleWarn = console.warn;
+
+  afterEach(() => {
+    console.warn = originalConsoleWarn;
+  });
+
+  function stubConsoleWarn() {
+    const warn = mock((..._args: unknown[]) => {});
+    console.warn = warn as unknown as typeof console.warn;
+    return warn;
+  }
+
+  function spyProvider(name = "spy"): AnalyticsProvider & {
+    track: ReturnType<typeof mock>;
+    page: ReturnType<typeof mock>;
+    screen: ReturnType<typeof mock>;
+    identify: ReturnType<typeof mock>;
+    group: ReturnType<typeof mock>;
+    alias: ReturnType<typeof mock>;
+  } {
+    return {
+      name,
+      capabilities: allCapabilities,
+      track: mock(() => {}),
+      page: mock(() => {}),
+      screen: mock(() => {}),
+      identify: mock(() => {}),
+      group: mock(() => {}),
+      alias: mock(() => {}),
+    };
+  }
+
+  it("multi-provider track/page/screen: a provider with requiresConsent is blocked while an unrestricted provider in the same list is not, until the required category is granted", () => {
+    const unrestricted = spyProvider("unrestricted");
+    const marketingGated = spyProvider("marketing-gated");
+    const analytics = createAnalytics({
+      provider: [{ provider: unrestricted }, { provider: marketingGated, requiresConsent: ["marketing"] }],
+    });
+
+    analytics.track("evt");
+    analytics.page();
+    analytics.screen();
+
+    expect(unrestricted.track).toHaveBeenCalledTimes(1);
+    expect(unrestricted.page).toHaveBeenCalledTimes(1);
+    expect(unrestricted.screen).toHaveBeenCalledTimes(1);
+    expect(marketingGated.track).not.toHaveBeenCalled();
+    expect(marketingGated.page).not.toHaveBeenCalled();
+    expect(marketingGated.screen).not.toHaveBeenCalled();
+
+    analytics.consent.grant("marketing");
+
+    analytics.track("evt");
+    analytics.page();
+    analytics.screen();
+
+    expect(unrestricted.track).toHaveBeenCalledTimes(2);
+    expect(marketingGated.track).toHaveBeenCalledTimes(1);
+    expect(marketingGated.page).toHaveBeenCalledTimes(1);
+    expect(marketingGated.screen).toHaveBeenCalledTimes(1);
+  });
+
+  it("multi-provider track: consent grant/deny takes effect immediately (live state, not a snapshot captured at construction)", () => {
+    const gated = spyProvider("gated");
+    const analytics = createAnalytics({
+      provider: [{ provider: gated, requiresConsent: ["analytics"] }],
+    });
+
+    analytics.track("evt");
+    expect(gated.track).not.toHaveBeenCalled();
+
+    analytics.consent.grant("analytics");
+    analytics.track("evt");
+    expect(gated.track).toHaveBeenCalledTimes(1);
+
+    analytics.consent.deny("analytics");
+    analytics.track("evt");
+    expect(gated.track).toHaveBeenCalledTimes(1);
+  });
+
+  it("multi-provider identify/group/alias: same per-provider gating, and routing fields (include) are still ignored entirely for these three verbs", () => {
+    const unrestricted = spyProvider("unrestricted");
+    const marketingGated = spyProvider("marketing-gated");
+    // `include` is set here but never evaluated for identify/group/alias
+    // (Phase 7 decision, untouched by issue 005) -- this provider has no
+    // `requiresConsent`, so it must receive every identify/group/alias call
+    // regardless of `include` not matching anything relevant.
+    const includeOnly = spyProvider("include-only");
+
+    const analytics = createAnalytics({
+      provider: [
+        { provider: unrestricted },
+        { provider: marketingGated, requiresConsent: ["marketing"] },
+        { provider: includeOnly, include: ["some_other_event_name_never_used_here"] },
+      ],
+    });
+
+    analytics.identify("user_1", { plan: "pro" });
+    analytics.group("group_1", { plan: "pro" });
+    analytics.alias("user_2", "user_1");
+
+    expect(unrestricted.identify).toHaveBeenCalledTimes(1);
+    expect(unrestricted.group).toHaveBeenCalledTimes(1);
+    expect(unrestricted.alias).toHaveBeenCalledTimes(1);
+    expect(marketingGated.identify).not.toHaveBeenCalled();
+    expect(marketingGated.group).not.toHaveBeenCalled();
+    expect(marketingGated.alias).not.toHaveBeenCalled();
+    // include is ignored for these three verbs -- receives every call
+    // despite its include list never matching an identify/group/alias call
+    // (which has no event name to match against in the first place).
+    expect(includeOnly.identify).toHaveBeenCalledTimes(1);
+    expect(includeOnly.group).toHaveBeenCalledTimes(1);
+    expect(includeOnly.alias).toHaveBeenCalledTimes(1);
+
+    analytics.consent.grant("marketing");
+
+    analytics.identify("user_3", { plan: "pro" });
+    analytics.group("group_2", { plan: "pro" });
+    analytics.alias("user_4", "user_3");
+
+    expect(marketingGated.identify).toHaveBeenCalledTimes(1);
+    expect(marketingGated.group).toHaveBeenCalledTimes(1);
+    expect(marketingGated.alias).toHaveBeenCalledTimes(1);
+  });
+
+  it("single-provider-entry (one ProviderEntry, not an array): requiresConsent is honored identically to the multi-provider path", () => {
+    const gated = spyProvider("solo-gated");
+    const analytics = createAnalytics({
+      provider: { provider: gated, requiresConsent: ["marketing"] },
+    });
+
+    analytics.track("evt");
+    analytics.identify("user_1");
+    expect(gated.track).not.toHaveBeenCalled();
+    expect(gated.identify).not.toHaveBeenCalled();
+
+    analytics.consent.grant("marketing");
+    analytics.track("evt");
+    analytics.identify("user_1");
+    expect(gated.track).toHaveBeenCalledTimes(1);
+    expect(gated.identify).toHaveBeenCalledTimes(1);
+  });
+
+  it("a consent-denied provider entry never triggers a capability warning for identify/group/alias, even when the provider is missing the method entirely (zero console.warn calls)", () => {
+    const warnSpy = stubConsoleWarn();
+    // No identify/group/alias methods at all -- `capabilities` also
+    // declares them unsupported, so without issue 005's consent-first
+    // ordering this would normally trigger one console.warn per capability
+    // the first time it's called.
+    const incapableProvider: AnalyticsProvider = {
+      name: "incapable",
+      capabilities: {
+        identify: false,
+        group: false,
+        alias: false,
+        page: false,
+        screen: false,
+        batching: false,
+        offline: false,
+        featureFlags: false,
+        sessionReplay: false,
+        heatmaps: false,
+      },
+      track: mock(() => {}),
+    };
+
+    const analytics = createAnalytics({
+      provider: [{ provider: incapableProvider, requiresConsent: ["marketing"] }],
+    });
+
+    // Consent for "marketing" is never granted -- every call below is
+    // blocked by consent, so the capability check (and its console.warn)
+    // should never even be reached.
+    analytics.identify("user_1");
+    analytics.group("group_1");
+    analytics.alias("user_2", "user_1");
+
+    expect(warnSpy).not.toHaveBeenCalled();
+  });
+
+  it("no requiresConsent on any entry: zero behavior change (regression) for both track/page/screen routing and identify/group/alias fan-out", () => {
+    const providerA = spyProvider("a");
+    const providerB = spyProvider("b");
+    const analytics = createAnalytics({ provider: [{ provider: providerA }, { provider: providerB }] });
+
+    analytics.track("evt");
+    analytics.page();
+    analytics.screen();
+    analytics.identify("user_1");
+    analytics.group("group_1");
+    analytics.alias("user_2", "user_1");
+
+    for (const provider of [providerA, providerB]) {
+      expect(provider.track).toHaveBeenCalledTimes(1);
+      expect(provider.page).toHaveBeenCalledTimes(1);
+      expect(provider.screen).toHaveBeenCalledTimes(1);
+      expect(provider.identify).toHaveBeenCalledTimes(1);
+      expect(provider.group).toHaveBeenCalledTimes(1);
+      expect(provider.alias).toHaveBeenCalledTimes(1);
+    }
+  });
+
+  // Documentation point (per the issue: a comment/type-level acceptance
+  // point is acceptable here, since there's something concretely
+  // runtime-observable to assert too -- so this is a real test, not just a
+  // comment). The Phase-6 "single bare provider" fast path
+  // (`provider: someAnalyticsProvider`, no `ProviderEntry`/array wrapping)
+  // normalizes to `{ entries: [{ provider }], isMulti: false }`
+  // (`normalizeProviders`) -- the resulting `ProviderEntry` is always a
+  // bare `{ provider }` object with no way to set `requiresConsent` on it,
+  // exactly like `include`/`exclude`/`sampling`/`priority` already require
+  // `ProviderEntry` wrapping (or an array) per Phase 7. A caller must wrap
+  // a single provider in a `ProviderEntry` (or a one-element array) to use
+  // `requiresConsent` -- confirmed below by placing a same-named field
+  // directly on the `AnalyticsProvider` object itself (not a real field of
+  // `AnalyticsProvider`, and not read from anywhere on this path) and
+  // observing it has zero gating effect.
+  it("single bare provider (no ProviderEntry/array wrapping): a requiresConsent-shaped field placed on the AnalyticsProvider object itself has no gating effect -- wrapping in ProviderEntry or an array is required to use requiresConsent", () => {
+    const provider = spyProvider("bare");
+    (provider as AnalyticsProvider & { requiresConsent?: string[] }).requiresConsent = ["marketing"];
+
+    const analytics = createAnalytics({ provider }); // bare -- isMulti: false, no consent configured at all
+
+    analytics.track("evt");
+    expect(provider.track).toHaveBeenCalledTimes(1);
+  });
+});

@@ -1,6 +1,6 @@
 import { captureDynamicContext, captureStaticContext } from "./context";
 import type { ContextOptions } from "./context";
-import { hasConsent, isConsentedForCategories, resolveDefaultState } from "./consent";
+import { hasConsent, isConsentedForCategories, isConsentedForProvider, resolveDefaultState } from "./consent";
 import type { ConsentCategory, ConsentOptions, ConsentState } from "./consent";
 import { runAfterChain, runBeforeChain, type Middleware } from "./middleware";
 import type { Plugin } from "./plugins";
@@ -264,6 +264,16 @@ export function createAnalytics<Events extends EventMap = EventMap>(
   // 1, `plan/phase-11-privacy-consent/BRIEF.md`).
   const consentState: ConsentState = { ...options.consent?.initialState };
   const requiredCategories = options.consent?.requiredCategories;
+
+  // Phase 11 issue 005: live closure over `consentState`/`defaultState`,
+  // read at call time (never a snapshot) -- passed to `shouldRouteToProvider`
+  // (track/page/screen fan-out) and used directly via `isConsentedForProvider`
+  // for identify/group/alias's per-provider consent-only gate. Equivalent to
+  // `analytics.consent.hasConsent`, defined inline here so it's available
+  // before the `analytics` object literal itself is constructed.
+  function hasConsentForCategory(category: ConsentCategory): boolean {
+    return hasConsent(consentState, category, defaultState);
+  }
 
   // Phase 11 issue 003: the coarse operational kill switch. Defaults to
   // `true` -- matches pre-Phase-11 behavior exactly, so every existing test
@@ -621,7 +631,7 @@ export function createAnalytics<Events extends EventMap = EventMap>(
             // isn't capability-gated, but keeps the same order as page/screen).
             // `evt` is the post-`before`-chain event -- routing sees the
             // (possibly transformed) event, never the pre-middleware one.
-            if (!shouldRouteToProvider(entry, evt)) return;
+            if (!shouldRouteToProvider(entry, evt, hasConsentForCategory)) return;
             return entry.provider.track(evt);
           },
           (entry, error) =>
@@ -654,6 +664,14 @@ export function createAnalytics<Events extends EventMap = EventMap>(
 
       if (!normalized.isMulti) {
         const entry = normalized.entries[0]!;
+        // Phase 11 issue 005: consent-only gate (not full routing -- see
+        // module doc comment), checked before the capability check so a
+        // consent-denied provider never triggers a capability warning. This
+        // branch's `entry` is always `{ provider }` (no `requiresConsent`
+        // possible via the bare-provider fast path), so this is vacuously
+        // `true` here -- kept for consistency with the multi-provider branch
+        // below, which needs the real check.
+        if (!isConsentedForProvider(entry.requiresConsent, hasConsentForCategory)) return;
         if (!isCapabilitySupported(entry, "identify")) return;
         return entry.provider.identify?.(newUserId, traits, anonymousId);
       }
@@ -667,6 +685,10 @@ export function createAnalytics<Events extends EventMap = EventMap>(
       // keeps ordering predictable to callers who declared their array in a
       // particular order.
       return dispatchToProviders(normalized.entries, "identify", (entry) => {
+        // Phase 11 issue 005: consent-only gate, evaluated before capability
+        // (see comment above) -- `include`/`exclude`/`predicate`/`sampling`
+        // remain deliberately unevaluated for this verb (Phase 7 decision).
+        if (!isConsentedForProvider(entry.requiresConsent, hasConsentForCategory)) return;
         if (!isCapabilitySupported(entry, "identify")) return;
         return entry.provider.identify?.(newUserId, traits, anonymousId);
       });
@@ -689,7 +711,7 @@ export function createAnalytics<Events extends EventMap = EventMap>(
           sorted,
           "page",
           (entry) => {
-            if (!shouldRouteToProvider(entry, evt)) return;
+            if (!shouldRouteToProvider(entry, evt, hasConsentForCategory)) return;
             if (!isCapabilitySupported(entry, "page")) return;
             return entry.provider.page?.(evt);
           },
@@ -704,11 +726,15 @@ export function createAnalytics<Events extends EventMap = EventMap>(
 
       if (!normalized.isMulti) {
         const entry = normalized.entries[0]!;
+        // Phase 11 issue 005: consent-only gate, before capability -- see
+        // identify()'s matching comment above.
+        if (!isConsentedForProvider(entry.requiresConsent, hasConsentForCategory)) return;
         if (!isCapabilitySupported(entry, "group")) return;
         return entry.provider.group?.(groupId, traits, { userId, anonymousId });
       }
 
       return dispatchToProviders(normalized.entries, "group", (entry) => {
+        if (!isConsentedForProvider(entry.requiresConsent, hasConsentForCategory)) return;
         if (!isCapabilitySupported(entry, "group")) return;
         return entry.provider.group?.(groupId, traits, { userId, anonymousId });
       });
@@ -731,11 +757,15 @@ export function createAnalytics<Events extends EventMap = EventMap>(
       // Does not mutate core's stored `userId` -- only `identify()` does.
       if (!normalized.isMulti) {
         const entry = normalized.entries[0]!;
+        // Phase 11 issue 005: consent-only gate, before capability -- see
+        // identify()'s matching comment above.
+        if (!isConsentedForProvider(entry.requiresConsent, hasConsentForCategory)) return;
         if (!isCapabilitySupported(entry, "alias")) return;
         return entry.provider.alias?.(newUserId, previousUserId, anonymousId);
       }
 
       return dispatchToProviders(normalized.entries, "alias", (entry) => {
+        if (!isConsentedForProvider(entry.requiresConsent, hasConsentForCategory)) return;
         if (!isCapabilitySupported(entry, "alias")) return;
         return entry.provider.alias?.(newUserId, previousUserId, anonymousId);
       });
@@ -758,7 +788,7 @@ export function createAnalytics<Events extends EventMap = EventMap>(
           sorted,
           "screen",
           (entry) => {
-            if (!shouldRouteToProvider(entry, evt)) return;
+            if (!shouldRouteToProvider(entry, evt, hasConsentForCategory)) return;
             if (!isCapabilitySupported(entry, "screen")) return;
             return entry.provider.screen?.(evt);
           },

@@ -6,6 +6,8 @@
 // until issue 003 wires it into `createAnalytics()`.
 import type { CanonicalEvent } from "./schema";
 import type { AnalyticsProvider } from "./providers";
+import { isConsentedForProvider } from "./consent";
+import type { ConsentCategory } from "./consent";
 
 // A single routing matcher against `CanonicalEvent.name`. A plain string
 // with no `*` is an exact (case-sensitive) match; a string containing `*`
@@ -23,6 +25,15 @@ export interface ProviderEntry {
   predicate?: (event: CanonicalEvent) => boolean;
   sampling?: number;
   priority?: number;
+  // Phase 11 issue 005: categories this specific provider requires consent
+  // for, independent of any global `requiredCategories` gate (issue 002).
+  // `undefined`/`[]` means the provider has no consent requirement of its
+  // own (vacuously always consented, per `isConsentedForProvider`). Only
+  // expressible via the `ProviderEntry` shape -- a bare `AnalyticsProvider`
+  // (the Phase-6 single-provider fast path) has no way to set this, exactly
+  // like `include`/`exclude`/`sampling`/`priority` already require the same
+  // `ProviderEntry` wrapping (or an array) to use.
+  requiresConsent?: ConsentCategory[];
 }
 
 export interface NormalizedProviders {
@@ -114,13 +125,30 @@ export function isSampledIn(anonymousId: string, samplingRate: number): boolean 
   return hashToUnitInterval(anonymousId) < samplingRate;
 }
 
-// Combines include/exclude/predicate/sampling into one pass/fail decision
-// for whether `entry.provider` should receive `event`. `include` and
-// `exclude` are mutually exclusive by construction (enforced by
+// Combines consent/include/exclude/predicate/sampling into one pass/fail
+// decision for whether `entry.provider` should receive `event`. `include`
+// and `exclude` are mutually exclusive by construction (enforced by
 // `normalizeProviders`), so no redundant runtime check is done here. All
 // applicable checks must pass (logical AND); short-circuits on the first
 // failing check, which is unobservable since no check has side effects.
-export function shouldRouteToProvider(entry: ProviderEntry, event: CanonicalEvent): boolean {
+// Consent is checked first -- it's the cheapest check (a handful of map
+// lookups via `hasConsentFn`) and the most likely to fail-fast in a
+// denied-by-default configuration, so it's worth evaluating before the
+// string-matching/predicate/sampling work below. `hasConsentFn` is a
+// required (not optional/defaulted) parameter -- every caller must supply a
+// closure that reads live consent state (e.g.
+// `(category) => analytics.consent.hasConsent(category)`), never a
+// snapshot, since consent can be granted/denied at any point in an
+// instance's lifetime.
+export function shouldRouteToProvider(
+  entry: ProviderEntry,
+  event: CanonicalEvent,
+  hasConsentFn: (category: ConsentCategory) => boolean,
+): boolean {
+  if (!isConsentedForProvider(entry.requiresConsent, hasConsentFn)) {
+    return false;
+  }
+
   if (entry.include !== undefined) {
     if (!entry.include.some((matcher) => matchRoute(matcher, event.name))) {
       return false;
