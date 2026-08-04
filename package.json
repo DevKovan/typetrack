@@ -10,7 +10,8 @@
     "examples/core/*",
     "examples/providers/*",
     "examples/middleware/*",
-    "examples/plugins/*"
+    "examples/plugins/*",
+    "examples/recipes/*"
   ],
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",

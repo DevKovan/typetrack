@@ -1,0 +1,62 @@
+This is the literal console output produced by `bun run index.ts` (stdout and
+stderr combined -- `console.warn` writes to stderr, everything else to
+stdout). Nothing in this example depends on any random value (identity
+fields like `anonymousId`/`sessionId` are generated internally by
+`createAnalytics()` but never printed here), so every line below is exactly
+reproducible on every run.
+
+=== Step 1: construct with two consent-gated providers + piiFilterMiddleware ===
+[flow] instance constructed: requiredCategories=["analytics"], defaultState="denied", piiFilterMiddleware registered
+
+=== Step 2: a visitor arrives before answering the consent banner ("Product Viewed") ===
+[flow] provider calls so far: product-analytics=0, marketing-pixel=0 (expected 0, 0 -- fully blocked by the global requiredCategories: ["analytics"] gate)
+
+=== Step 3: the visitor accepts only the "Analytics" toggle -- consent.grant("analytics") ===
+[provider] product-analytics received "Product Viewed" {"sku":"TT-PLAN-PRO","email":"[REDACTED]"}
+[flow] provider calls so far: product-analytics=1, marketing-pixel=0 (expected 1, 0 -- reaches only the analytics-consent provider; marketing-pixel still requires its own "marketing" consent, per-provider gating)
+
+=== Step 4: the visitor later also accepts "Marketing" -- consent.grant("marketing") ===
+[provider] product-analytics received "Newsletter Subscribed" {"email":"[REDACTED]"}
+[provider] marketing-pixel received "Newsletter Subscribed" {"email":"[REDACTED]"}
+[flow] provider calls so far: product-analytics=2, marketing-pixel=1 (expected 2, 1 -- now reaches both providers, each still redacted by the shared piiFilterMiddleware)
+
+=== Step 5: a SECOND, separately-constructed instance detects a Global Privacy Control signal at construction ===
+[flow] gpcAnalytics.consent.hasConsent("analytics") === false (fail-closed default applied immediately at construction -- no grant()/deny() call has been made yet)
+[flow] gpc-instance-analytics provider calls: 0 (expected 0 -- blocked by the GPC-driven denied default)
+
+=== Step 6: analytics.disable() on the first instance -- consent/enabled independence ===
+[flow] provider calls after disable(): product-analytics=2, marketing-pixel=1 (expected still 2, 1 -- "analytics"/"marketing" consent remain granted, but disable() blocks independently)
+[provider] product-analytics received "Newsletter Subscribed" {"email":"[REDACTED]"}
+[provider] marketing-pixel received "Newsletter Subscribed" {"email":"[REDACTED]"}
+[flow] provider calls after enable(): product-analytics=3, marketing-pixel=2 (expected 3, 2 -- normal behavior restored)
+
+Notes on what's happening above, per step:
+- Step 1-2: the visitor hasn't answered the consent banner yet, so no
+  category has an explicit decision. `requiredCategories: ["analytics"]`
+  (the global gate, issue 002) resolves every listed category against
+  `defaultState: "denied"`, so `track()` is blocked before routing/provider
+  dispatch is even evaluated -- neither provider receives anything.
+- Step 3: `consent.grant("analytics")` satisfies the global gate, so the
+  event reaches per-provider routing (issue 005). `product-analytics`'s
+  `ProviderEntry.requiresConsent: ["analytics"]` is now satisfied;
+  `marketing-pixel`'s `requiresConsent: ["marketing"]` is not (that category
+  is still unset, resolving to `defaultState: "denied"`) -- so only
+  `product-analytics` receives the event. `piiFilterMiddleware()` (issue
+  007, registered via `.use()`) redacts `email` in what it receives, leaving
+  `sku` untouched.
+- Step 4: `consent.grant("marketing")` satisfies `marketing-pixel`'s own
+  requirement too -- both providers now receive `"Newsletter Subscribed"`,
+  each with `email` still redacted by the same shared `piiFilterMiddleware`.
+- Step 5: a second, independent `createAnalytics()` instance is constructed
+  while a stubbed Global Privacy Control signal
+  (`navigator.globalPrivacyControl === true`) is present, with
+  `respectBrowserSignals: true` and no `initialState`. Per
+  `resolveDefaultState()` (`src/consent.ts`), this forces the instance's
+  `defaultState` to `"denied"` -- `consent.hasConsent("analytics")` is
+  already `false` immediately after construction, before any `grant()`/
+  `deny()` call is ever made on this instance, and its own gated `track()`
+  call is blocked accordingly.
+- Step 6: `analytics.disable()` (issue 003) blocks a further `track()` call
+  even though `"analytics"`/`"marketing"` consent are both still granted on
+  the first instance -- `enabled` and consent state are independent gates,
+  evaluated with logical AND. `analytics.enable()` restores normal delivery.

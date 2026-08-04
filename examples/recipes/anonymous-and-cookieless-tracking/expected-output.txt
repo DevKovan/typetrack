@@ -1,0 +1,48 @@
+This is the literal console output produced by `bun run index.ts` (stdout and
+stderr combined -- `console.warn` writes to stderr, everything else to
+stdout). Nothing in this example depends on any random value, so every line
+below is exactly reproducible on every run.
+
+=== Step 1-2: first page load, arriving via a campaign link ("?utm_source=...") ===
+[provider] privacy-first-warehouse received track("Campaign Landing") {"properties":{"source":"newsletter","medium":"email","campaign":"spring-sale"}}
+[flow] provider calls so far: 1 (expected 1 -- autoUTM()'s "Campaign Landing" event still fires at construction)
+[flow] sessionStorage.setItem call count: 0 (expected 0 -- cookieless: true skips autoUTM()'s first-touch persistence entirely)
+
+=== Step 3: application code calls identify() from a shared auth hook -- no-op under anonymousMode ===
+typetrack: anonymousMode is enabled -- identify() call ignored.
+[flow] identify() provider calls: 0 (expected 0 -- anonymousMode makes identify() a complete no-op)
+[provider] privacy-first-warehouse received track("Pricing Page Viewed") {"properties":{"plan":"pro"}}
+[flow] most recent track() call's userId: undefined (expected undefined -- identify() never set it)
+
+=== Step 4: a second page load, same session, no UTM params -- no further "Campaign Landing" ===
+[flow] total "Campaign Landing" events across both page loads: 1 (expected 1 -- cookieless mode has no persisted first-touch value to fall back on, per issue 006's documented trade-off)
+
+=== Step 5: analytics.destroy() -- teardown completes normally ===
+[flow] destroy() completed for both instances without throwing
+
+Notes on what's happening above, per step:
+- Step 1-2: `createAnalytics({ anonymousMode: true, cookieless: true,
+  plugins: [autoUTM()], provider })` is constructed while the stubbed page's
+  `location.search` carries UTM params. `autoUTM()`'s one-shot landing
+  event still fires unconditionally on any URL carrying UTM params (issue
+  006 only changes *persistence* behavior, never whether the landing event
+  itself fires) -- but with `cookieless: true`, `autoUTM()` skips its
+  `sessionStorage.setItem` call entirely (verified via a real spy on the
+  stubbed `sessionStorage.setItem`, not just an assumption).
+- Step 3: `identify("user-42", { email: "..." })` -- e.g. from a generic
+  shared auth hook the app author didn't want to special-case for this one
+  privacy-first surface -- is a complete no-op under `anonymousMode: true`
+  (issue 004): `console.warn`'s once, never calls the provider's own
+  `identify()`, and never updates the core-held `userId`. A subsequent
+  `track()` call's `CanonicalEvent.userId` is still `undefined` as a direct
+  result.
+- Step 4: a second, independently-constructed `createAnalytics()` instance
+  simulates a second full page load in the same browser session, this time
+  with no UTM params in `location.search`. `autoUTM()` never persisted a
+  first-touch value to fall back on in Step 1-2 (cookieless mode's
+  documented trade-off, issue 006), so this second load has nothing to
+  recover campaign attribution from -- no further `"Campaign Landing"`
+  event fires. The running total across both page loads stays at exactly 1.
+- Step 5: `destroy()` is called on both instances and resolves without
+  throwing -- ordinary teardown, included to confirm the flow's full
+  lifecycle completes cleanly under this configuration.

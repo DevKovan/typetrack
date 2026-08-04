@@ -20,5 +20,5 @@
       "@typetrack/react": ["./packages/react/src/index.ts"]
     }
   },
-  "include": ["src", "packages/*/src", "examples/core/*", "examples/providers/*", "examples/middleware/*", "examples/plugins/*", "tsup.config.ts"]
+  "include": ["src", "packages/*/src", "examples/core/*", "examples/providers/*", "examples/middleware/*", "examples/plugins/*", "examples/recipes/*", "tsup.config.ts"]
 }
