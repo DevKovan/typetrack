@@ -19,6 +19,7 @@ import {
   captureDynamicContext,
   captureStaticContext,
   isBrowserEnvironment,
+  parseCampaign,
   parseUserAgent,
 } from "./context";
 
@@ -305,5 +306,23 @@ describe("captureDynamicContext", () => {
     const second = captureDynamicContext(undefined);
     expect(second.viewport).toEqual({ width: 1024, height: 768 });
     expect(second.referrer).toBe("https://second.example/");
+  });
+});
+
+// `parseCampaign` itself is exercised thoroughly (all-five-present,
+// subset-present, none-present) via `captureDynamicContext`'s existing
+// tests above -- this is a minimal smoke test confirming the Phase 10
+// issue 005 export change (module-private -> exported) didn't alter
+// behavior, not a duplicate of that coverage.
+describe("parseCampaign (Phase 10 issue 005's newly public export)", () => {
+  it("parses UTM params directly from a search string, independent of captureDynamicContext/location", () => {
+    expect(parseCampaign("?utm_source=newsletter&utm_medium=email")).toEqual({
+      source: "newsletter",
+      medium: "email",
+    });
+  });
+
+  it("returns undefined when no UTM params are present", () => {
+    expect(parseCampaign("?foo=bar")).toBeUndefined();
   });
 });

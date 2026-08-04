@@ -41,6 +41,8 @@ export { autoWebVitals } from "./plugins/autoWebVitals";
 export type { WebVitalName, WebVitalRating } from "./plugins/autoWebVitals";
 export { autoPerformance } from "./plugins/autoPerformance";
 export type { PagePerformanceProperties } from "./plugins/autoPerformance";
+export { autoUTM } from "./plugins/autoUTM";
+export type { AutoUTMOptions } from "./plugins/autoUTM";
 
 export interface CreateAnalyticsOptions<Events extends EventMap = EventMap> {
   // A single bare provider keeps exact Phase 6 passthrough behavior (no

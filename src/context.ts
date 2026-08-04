@@ -259,7 +259,12 @@ const UTM_PARAM_TO_CAMPAIGN_KEY: Record<string, keyof CampaignParams> = {
 // object (not `undefined`); if none of the five are present, returns
 // `undefined` (the caller omits `campaign` entirely rather than including an
 // empty object).
-function parseCampaign(search: string): CampaignParams | undefined {
+//
+// Exported (Phase 10 issue 005) so `src/plugins/autoUTM.ts` can reuse this
+// exact param mapping for its own first-touch campaign persistence rather
+// than re-implementing it -- no signature/behavior change from its
+// previously-module-private form.
+export function parseCampaign(search: string): CampaignParams | undefined {
   const params = new URLSearchParams(search);
   const campaign: CampaignParams = {};
   let matchedAny = false;
