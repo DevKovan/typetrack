@@ -36,6 +36,11 @@ export type { AutoClicksOptions } from "./plugins/autoClicks";
 export { autoScroll } from "./plugins/autoScroll";
 export type { AutoScrollOptions } from "./plugins/autoScroll";
 export { autoVisibility } from "./plugins/autoVisibility";
+export { autoErrors } from "./plugins/autoErrors";
+export { autoWebVitals } from "./plugins/autoWebVitals";
+export type { WebVitalName, WebVitalRating } from "./plugins/autoWebVitals";
+export { autoPerformance } from "./plugins/autoPerformance";
+export type { PagePerformanceProperties } from "./plugins/autoPerformance";
 
 export interface CreateAnalyticsOptions<Events extends EventMap = EventMap> {
   // A single bare provider keeps exact Phase 6 passthrough behavior (no
