@@ -153,10 +153,9 @@ export interface CreateAnalyticsOptions<Events extends EventMap = EventMap> {
 
 // Phase 12 issue 003: the object form of `CreateAnalyticsOptions.reliability`
 // -- mirrors `devServer?: boolean | { url? }`'s shorthand-or-object shape
-// exactly. `batch`/`flushOnUnload` are defined here (this issue's own type
-// shape) but deliberately unconsumed by this issue -- issue 005 wires
-// `batch` into the drain loop, issue 006 wires `flushOnUnload` into a
-// `sendBeacon`-based unload flush. `true` (the boolean shorthand) is
+// exactly. `batch` is wired into the drain loop by issue 005;
+// `flushOnUnload` is wired into a `pagehide`-driven unload flush by issue
+// 006 (see that field's own doc comment below). `true` (the boolean shorthand) is
 // equivalent to `{}` here: every field below is resolved against its own
 // documented default by whatever consumes it (`detectBestStorage`,
 // `createQueueEngine`), so no field-by-field defaulting happens in this
@@ -187,10 +186,17 @@ export interface ReliabilityOptions {
   // `capabilities.batch`/implement `trackBatch` -- that provider is always
   // drained one entry at a time, exactly as issue 003 specified.
   batch?: { size?: number; intervalMs?: number };
-  // Defined by this issue's type shape but not yet consumed anywhere --
-  // issue 006 wires a `sendBeacon`-based flush into an unload listener.
-  // Documented default (`true`) under `reliability: true`, though nothing
-  // reads it yet.
+  // Phase 12 issue 006: whether a `pagehide` listener is registered (browser
+  // environments only) to make one best-effort attempt at delivering every
+  // currently-queued entry as the page is torn down. Defaults to `true`
+  // whenever `reliability` is enabled at all (including the `reliability:
+  // true` shorthand) -- an app opting into reliability almost always wants
+  // best-effort delivery on unload too. Set `flushOnUnload: false` to opt
+  // out (no listener registered at all). See
+  // `plan/phase-12-reliability/006-flush-on-unload.md` for the full design
+  // (why `pagehide`, not `beforeunload`/`unload`; why true `sendBeacon` use
+  // is scoped to the `devServer` mirror only; why no
+  // `recordSuccess`/`recordFailure` bookkeeping happens from this path).
   flushOnUnload?: boolean;
 }
 
@@ -724,6 +730,12 @@ export function createAnalytics<Events extends EventMap = EventMap>(
   let queueEngine: QueueEngine | undefined;
   let drainIntervalHandle: ReturnType<typeof setInterval> | undefined;
   let onlineListener: (() => void) | undefined;
+  // Phase 12 issue 006: the `pagehide` unload-flush listener -- `undefined`
+  // unless the reliability block below both enables reliability and
+  // resolves `flushOnUnload` to `true` in a browser environment. `destroy()`
+  // removes it (alongside `onlineListener`) and resets this back to
+  // `undefined`.
+  let pagehideListener: (() => void) | undefined;
   // Resolves once `queueEngine.hydrate()` (fire-and-forget, kicked off
   // below) settles -- `hydrate()` never rejects (issue 002's own contract:
   // a hydration failure is caught internally and logged, `entries` falls
@@ -911,6 +923,89 @@ export function createAnalytics<Events extends EventMap = EventMap>(
     }
   }
 
+  // Phase 12 issue 006: the `pagehide`-driven unload flush -- a single
+  // best-effort pass over every currently-queued entry, invoked at most
+  // once per `pagehide` event. Bypasses each entry's own `nextAttemptAt`
+  // backoff gate (`peekReady(Number.POSITIVE_INFINITY)`, exactly `flush()`'s
+  // bypass-backoff behavior from issue 003) -- an unload is the last chance
+  // to deliver, so waiting out a backoff timer is pointless.
+  //
+  // Two independent, best-effort delivery attempts happen per entry, neither
+  // awaited nor followed by any `recordSuccess`/`recordFailure` bookkeeping
+  // (there is no reliable way to know whether either one actually delivered
+  // before the page finishes tearing down, and the entry's persisted state
+  // in storage already reflects it -- if delivery *does* succeed here, the
+  // entry is redundantly retried once more on the next page load, which
+  // will simply succeed immediately; an accepted at-least-once tradeoff, not
+  // engineered for exactly-once semantics):
+  //
+  // 1. When `devServerUrl` is configured: mirrors the entry to the dev
+  //    server via `navigator.sendBeacon`, using the same `{ event, payload }`
+  //    body shape as the existing `fetch()`-based dev-server mirror in
+  //    `track()` above (`event` is the event *name*, `payload` is its
+  //    properties) -- `sendBeacon` is the browser API built to survive
+  //    exactly this "page is going away" scenario, unlike a normal `fetch()`,
+  //    which the browser may cancel mid-flight during unload. Scoped
+  //    deliberately to typetrack's own dev-server mirror only -- see
+  //    `plan/phase-12-reliability/006-flush-on-unload.md`'s "Provider
+  //    beacon-capability decision" for why this isn't generalized to every
+  //    `AnalyticsProvider` (would require a new beacon-URL+body contract on
+  //    the `AnalyticsProvider` interface itself, real adapter-facing scope
+  //    this phase does not take on).
+  // 2. For the entry's actual configured provider (looked up live by
+  //    `providerName` in `normalized.entries`, exactly `drainQueueOnce()`'s
+  //    lookup): a direct, fire-and-forget `provider.track/page/screen(event)`
+  //    call -- not awaited, no `.catch` attached either (no bookkeeping at
+  //    all, per the design above). This is the meaningful reliability
+  //    improvement for real providers on unload (a last-ditch attempt,
+  //    rather than the queue being silently wiped by a cancelled async
+  //    call), even without literal `sendBeacon` usage -- an individual
+  //    provider adapter's own transport (`fetch`, an SDK's internal beacon,
+  //    etc) is that adapter's own business, untouched by this function.
+  //
+  // The whole per-entry body is wrapped in a `try`/`catch` purely so one
+  // entry throwing synchronously (e.g. a provider whose `track()` throws
+  // instead of rejecting) can never stop the remaining entries in this pass
+  // from getting their own best-effort attempt -- this is defensive
+  // resilience, not the recordSuccess/recordFailure bookkeeping this
+  // function deliberately omits.
+  function flushQueueOnUnload(): void {
+    if (!queueEngine) return;
+
+    const entries = queueEngine.peekReady(Number.POSITIVE_INFINITY);
+
+    for (const entry of entries) {
+      try {
+        if (devServerUrl) {
+          const sendBeacon = (
+            globalThis as { navigator?: { sendBeacon?: (url: string, data?: string) => boolean } }
+          ).navigator?.sendBeacon;
+          sendBeacon?.(
+            devServerUrl,
+            JSON.stringify({ event: entry.event.name, payload: entry.event.properties }),
+          );
+        }
+
+        const matchingEntry = normalized.entries.find(
+          (candidate) => candidate.provider.name === entry.providerName,
+        );
+        if (!matchingEntry) continue;
+
+        const provider = matchingEntry.provider;
+        if (entry.verb === "track") {
+          provider.track(entry.event);
+        } else if (entry.verb === "page") {
+          provider.page?.(entry.event);
+        } else {
+          provider.screen?.(entry.event);
+        }
+      } catch {
+        // Best-effort only -- never throw from an unload handler, and never
+        // let one entry's failure stop the rest of this pass.
+      }
+    }
+  }
+
   if (reliabilityOptions) {
     // Phase 12 issue 003: a per-instance stable prefix, generated once here
     // and reused for both the storage key (localStorage) and DB/store name
@@ -975,6 +1070,21 @@ export function createAnalytics<Events extends EventMap = EventMap>(
       };
       (globalThis as { window?: { addEventListener?: (type: string, listener: () => void) => void } }).window
         ?.addEventListener?.("online", onlineListener);
+    }
+
+    // Phase 12 issue 006: `pagehide`, not `beforeunload`/`unload` -- see
+    // `plan/phase-12-reliability/006-flush-on-unload.md`'s "Design decisions"
+    // for why (`beforeunload` blocks bfcache eligibility; `unload` is
+    // deprecated/unreliable). Registered only in a browser environment, and
+    // only when `flushOnUnload` resolves `true` (the default whenever
+    // `reliability` is enabled at all).
+    const flushOnUnload = reliabilityOptions.flushOnUnload ?? true;
+    if (flushOnUnload && isBrowserEnvironment()) {
+      pagehideListener = () => {
+        flushQueueOnUnload();
+      };
+      (globalThis as { window?: { addEventListener?: (type: string, listener: () => void) => void } }).window
+        ?.addEventListener?.("pagehide", pagehideListener);
     }
   }
 
@@ -1355,6 +1465,17 @@ export function createAnalytics<Events extends EventMap = EventMap>(
           globalThis as { window?: { removeEventListener?: (type: string, listener: () => void) => void } }
         ).window?.removeEventListener?.("online", onlineListener);
         onlineListener = undefined;
+      }
+      // Phase 12 issue 006: mirrors `onlineListener`'s cleanup immediately
+      // above -- removes the `pagehide` unload-flush listener (a no-op when
+      // it was never registered, i.e. reliability was disabled, `devServer`/
+      // reliability's `flushOnUnload` resolved `false`, or this instance was
+      // constructed outside a browser environment).
+      if (pagehideListener) {
+        (
+          globalThis as { window?: { removeEventListener?: (type: string, listener: () => void) => void } }
+        ).window?.removeEventListener?.("pagehide", pagehideListener);
+        pagehideListener = undefined;
       }
 
       // Drain first, then tear down, per provider. Not capability-gated.

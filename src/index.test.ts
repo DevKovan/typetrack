@@ -2039,4 +2039,161 @@ describe("createAnalytics({ reliability }) (Phase 12 issue 003)", () => {
       await analytics.destroy();
     });
   });
+
+  // Integration tests for Phase 12 issue 006: `flushOnUnload`'s `pagehide`
+  // listener. Reuses this outer describe block's `createFlakyProvider()`/
+  // `flushAsync()` helpers, and follows `stubBrowserOnline()`'s precedent
+  // above (a `window`/`navigator` stub with spy `addEventListener`/
+  // `removeEventListener`, simulated by invoking the captured listener
+  // directly rather than constructing a real DOM `Event`) -- extended here
+  // with a real add/remove-aware listener registry (rather than simply
+  // replaying `addEventListener`'s call history) so the `destroy()`-removes-
+  // the-listener acceptance criterion can be verified precisely: triggering
+  // `pagehide` post-`destroy()` must produce zero further calls, which only
+  // holds if `removeEventListener` actually stops `triggerPagehide()` from
+  // invoking the (removed) listener.
+  describe("flushOnUnload / pagehide unload flush (Phase 12 issue 006)", () => {
+    function stubBrowserForUnload(online = true): {
+      addEventListener: ReturnType<typeof mock>;
+      removeEventListener: ReturnType<typeof mock>;
+      sendBeacon: ReturnType<typeof mock>;
+      triggerPagehide: () => void;
+    } {
+      const listeners = new Map<string, Set<() => void>>();
+
+      const addEventListener = mock((type: string, listener: () => void) => {
+        let set = listeners.get(type);
+        if (!set) {
+          set = new Set();
+          listeners.set(type, set);
+        }
+        set.add(listener);
+      });
+      const removeEventListener = mock((type: string, listener: () => void) => {
+        listeners.get(type)?.delete(listener);
+      });
+      const sendBeacon = mock((_url: string, _data?: string) => true);
+
+      Object.defineProperty(globalThis, "window", {
+        value: { addEventListener, removeEventListener },
+        configurable: true,
+        writable: true,
+      });
+      Object.defineProperty(globalThis, "navigator", {
+        value: { onLine: online, sendBeacon },
+        configurable: true,
+        writable: true,
+      });
+
+      function triggerPagehide(): void {
+        for (const listener of listeners.get("pagehide") ?? []) {
+          listener();
+        }
+      }
+
+      return { addEventListener, removeEventListener, sendBeacon, triggerPagehide };
+    }
+
+    it("reliability: true (default flushOnUnload), devServer also configured: pagehide fires with queued entries -> sendBeacon is called with the dev-server mirror URL and a serialized { event, payload } body per entry", async () => {
+      const { sendBeacon, triggerPagehide } = stubBrowserForUnload(false);
+      const provider = createFlakyProvider("p1");
+      const analytics = createAnalytics({ provider, reliability: true, devServer: true });
+
+      // `navigator.onLine === false` -- both calls are enqueued directly
+      // (offline-skip), never reaching the provider.
+      await analytics.track("e1", { foo: "bar" });
+      await analytics.page("home", { bar: "baz" });
+      expect(analytics.queue.size()).toBe(2);
+
+      triggerPagehide();
+
+      expect(sendBeacon).toHaveBeenCalledTimes(2);
+      const [url1, body1] = sendBeacon.mock.calls[0]!;
+      expect(url1).toBe("http://127.0.0.1:4318/events");
+      expect(JSON.parse(body1 as string)).toEqual({ event: "e1", payload: { foo: "bar" } });
+      const [url2, body2] = sendBeacon.mock.calls[1]!;
+      expect(url2).toBe("http://127.0.0.1:4318/events");
+      expect(JSON.parse(body2 as string)).toEqual({ event: "home", payload: { bar: "baz" } });
+
+      // No recordSuccess/recordFailure bookkeeping happens from this path --
+      // the queue is left exactly as it was (documented at-least-once
+      // tradeoff).
+      expect(analytics.queue.size()).toBe(2);
+
+      await analytics.destroy();
+    });
+
+    it("reliability: { flushOnUnload: false }: no pagehide listener is ever registered", async () => {
+      const { addEventListener } = stubBrowserForUnload();
+      const provider = createFlakyProvider("p1");
+      const analytics = createAnalytics({ provider, reliability: { flushOnUnload: false } });
+
+      expect(addEventListener.mock.calls.some((call) => call[0] === "pagehide")).toBe(false);
+
+      await analytics.destroy();
+    });
+
+    it("reliability omitted entirely: no pagehide listener is registered (no addEventListener call at all -- byte-for-byte pre-Phase-12 behavior)", async () => {
+      const { addEventListener } = stubBrowserForUnload();
+      const provider = createFlakyProvider("p1");
+      const analytics = createAnalytics({ provider });
+
+      expect(addEventListener).not.toHaveBeenCalled();
+
+      await analytics.destroy();
+    });
+
+    it("with one or more configured AnalyticsProvider(s), no devServer: pagehide triggers a fire-and-forget provider.track/page/screen call per queued entry, without awaiting/blocking on it", async () => {
+      const { triggerPagehide } = stubBrowserForUnload(false);
+      const provider = createFlakyProvider("p1");
+      const analytics = createAnalytics({ provider, reliability: true });
+
+      await analytics.track("e1", { a: 1 });
+      await analytics.page("home", { b: 2 });
+      expect(analytics.queue.size()).toBe(2);
+      expect(provider.trackCalls).toHaveLength(0);
+      expect(provider.pageCalls).toHaveLength(0);
+
+      // The (non-`async`) pagehide handler itself returns synchronously,
+      // without awaiting either provider call's resolution.
+      const returnValue = triggerPagehide();
+      expect(returnValue).toBeUndefined();
+
+      expect(provider.trackCalls).toHaveLength(1);
+      expect(provider.pageCalls).toHaveLength(1);
+      // Still no recordSuccess/recordFailure bookkeeping -- the queue itself
+      // is untouched.
+      expect(analytics.queue.size()).toBe(2);
+
+      await analytics.destroy();
+    });
+
+    it("destroy() removes the pagehide listener -- simulating pagehide post-destroy() produces zero additional sendBeacon/provider calls", async () => {
+      const { sendBeacon, triggerPagehide } = stubBrowserForUnload(false);
+      const provider = createFlakyProvider("p1");
+      const analytics = createAnalytics({ provider, reliability: true, devServer: true });
+
+      await analytics.track("e1", { a: 1 });
+      expect(analytics.queue.size()).toBe(1);
+
+      await analytics.destroy();
+
+      triggerPagehide();
+
+      expect(sendBeacon).not.toHaveBeenCalled();
+      expect(provider.trackCalls).toHaveLength(0);
+    });
+
+    it("outside a browser environment: no pagehide registration is attempted, and construction/destruction never throws", async () => {
+      // No `window`/`navigator` stub at all here -- `isBrowserEnvironment()`
+      // is `false`, so the reliability block never even attempts a
+      // `globalThis.window` access for this listener.
+      const provider = createFlakyProvider("p1");
+      const analytics = createAnalytics({ provider, reliability: true });
+
+      expect(analytics.queue.size()).toBe(0);
+
+      await analytics.destroy();
+    });
+  });
 });
