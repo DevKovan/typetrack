@@ -1,0 +1,55 @@
+{
+  "name": "@typetrack/solid",
+  "version": "0.0.0",
+  "description": "SolidJS bindings (AnalyticsProvider, useAnalytics) for typetrack.",
+  "license": "MIT",
+  "type": "module",
+  "private": false,
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    "solid": "./dist/index.jsx",
+    "import": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "require": {
+      "types": "./dist/index.d.cts",
+      "default": "./dist/index.cjs"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "lint": "oxlint",
+    "typecheck": "tsgo --noEmit",
+    "typecheck:tsc": "tsc --noEmit",
+    "test": "bun test --conditions=browser"
+  },
+  "peerDependencies": {
+    "solid-js": "^1.9.0"
+  },
+  "dependencies": {
+    "typetrack": "file:../.."
+  },
+  "devDependencies": {
+    "@babel/core": "7.29.7",
+    "@babel/preset-typescript": "7.29.7",
+    "@happy-dom/global-registrator": "20.11.1",
+    "@solidjs/testing-library": "0.8.10",
+    "@types/babel__core": "7.20.5",
+    "@typescript/native-preview": "7.0.0-dev.20260707.2",
+    "babel-preset-solid": "1.9.12",
+    "knip": "6.31.0",
+    "oxlint": "1.76.0",
+    "solid-js": "1.9.14",
+    "tsup": "8.5.1",
+    "tsup-preset-solid": "2.2.0",
+    "typescript": "6.0.3"
+  },
+  "browser": {},
+  "typesVersions": {}
+}
