@@ -13,10 +13,19 @@ interface RecordedRequest {
 
 let server: ReturnType<typeof Bun.serve>;
 let received: RecordedRequest[];
+// Explicit `127.0.0.1`, never `server.url`'s default `localhost` hostname:
+// posthog-node's internal HTTP client resolves "localhost" independently of
+// Bun's own resolver, and on some CI runners that resolves to `::1` first --
+// a hostname `Bun.serve()`'s own default (unspecified) bind doesn't
+// necessarily cover, causing every request to silently never arrive. Binding
+// and addressing by the literal loopback IPv4 address removes the DNS
+// resolution step (and its cross-environment ambiguity) entirely.
+let serverUrl: string;
 
 beforeEach(() => {
   received = [];
   server = Bun.serve({
+    hostname: "127.0.0.1",
     port: 0,
     async fetch(req) {
       const url = new URL(req.url);
@@ -33,6 +42,7 @@ beforeEach(() => {
       });
     },
   });
+  serverUrl = `http://127.0.0.1:${server.port}`;
 });
 
 afterEach(() => {
@@ -60,7 +70,7 @@ describe("createPostHogProvider (integration)", () => {
   it("sends track() calls with distinctId derived directly from the event, before and after a simulated identity change", async () => {
     const provider = createPostHogProvider({
       apiKey: "test",
-      host: server.url.toString(),
+      host: serverUrl,
       flushAt: 1,
     });
 
@@ -79,7 +89,7 @@ describe("createPostHogProvider (integration)", () => {
   it("sends page() calls as a $pageview event to /batch/", async () => {
     const provider = createPostHogProvider({
       apiKey: "test",
-      host: server.url.toString(),
+      host: serverUrl,
       flushAt: 1,
     });
 
@@ -96,7 +106,7 @@ describe("createPostHogProvider (integration)", () => {
   it("sends screen() calls as a $screen event to /batch/", async () => {
     const provider = createPostHogProvider({
       apiKey: "test",
-      host: server.url.toString(),
+      host: serverUrl,
       flushAt: 1,
     });
 
@@ -113,7 +123,7 @@ describe("createPostHogProvider (integration)", () => {
   it("sends group() calls with the fixed groupType/groupKey to /batch/", async () => {
     const provider = createPostHogProvider({
       apiKey: "test",
-      host: server.url.toString(),
+      host: serverUrl,
       flushAt: 1,
     });
 
@@ -131,7 +141,7 @@ describe("createPostHogProvider (integration)", () => {
   it("sends alias() calls with the correct distinctId/alias fields to /batch/", async () => {
     const provider = createPostHogProvider({
       apiKey: "test",
-      host: server.url.toString(),
+      host: serverUrl,
       flushAt: 1,
     });
 
@@ -148,7 +158,7 @@ describe("createPostHogProvider (integration)", () => {
   it("destroy() flushes pending events and the server receives no further requests after it resolves", async () => {
     const provider = createPostHogProvider({
       apiKey: "test",
-      host: server.url.toString(),
+      host: serverUrl,
       flushAt: 10,
       flushInterval: 60_000,
     });

@@ -13,10 +13,20 @@ interface RecordedRequest {
 
 let server: ReturnType<typeof Bun.serve>;
 let received: RecordedRequest[];
+// Explicit `127.0.0.1`, never `server.url`'s default `localhost` hostname:
+// @segment/analytics-node's internal HTTP client resolves "localhost"
+// independently of Bun's own resolver, and on some CI runners that resolves
+// to `::1` first -- a hostname `Bun.serve()`'s own default (unspecified)
+// bind doesn't necessarily cover, causing every request to silently never
+// arrive. Binding and addressing by the literal loopback IPv4 address
+// removes the DNS resolution step (and its cross-environment ambiguity)
+// entirely.
+let serverUrl: string;
 
 beforeEach(() => {
   received = [];
   server = Bun.serve({
+    hostname: "127.0.0.1",
     port: 0,
     async fetch(req) {
       const url = new URL(req.url);
@@ -33,6 +43,7 @@ beforeEach(() => {
       });
     },
   });
+  serverUrl = `http://127.0.0.1:${server.port}`;
 });
 
 afterEach(() => {
@@ -60,7 +71,7 @@ describe("createSegmentProvider (integration)", () => {
   it("track() -> flush() -> track() again -> group()/alias()/screen() -> destroy() drains everything and is the true end-of-lifecycle op", async () => {
     const provider = createSegmentProvider({
       writeKey: "test",
-      host: server.url.toString(),
+      host: serverUrl,
     });
 
     // 1. track() -> flush() -> assert the local server received the batch.
@@ -140,7 +151,7 @@ describe("createSegmentProvider (integration)", () => {
   it("sends page() calls to /v1/batch with name/properties translated via the global map", async () => {
     const provider = createSegmentProvider({
       writeKey: "test",
-      host: server.url.toString(),
+      host: serverUrl,
       propertyMap: { global: { referrer: "page_referrer" } },
     });
 
@@ -159,7 +170,7 @@ describe("createSegmentProvider (integration)", () => {
   it("track() before identify() sends only anonymousId (no userId) to the server", async () => {
     const provider = createSegmentProvider({
       writeKey: "test",
-      host: server.url.toString(),
+      host: serverUrl,
     });
 
     provider.track(makeEvent({ name: "Anon Event", userId: undefined }));
@@ -175,7 +186,7 @@ describe("createSegmentProvider (integration)", () => {
   it("an unmapped event name passes through unchanged to the server", async () => {
     const provider = createSegmentProvider({
       writeKey: "test",
-      host: server.url.toString(),
+      host: serverUrl,
     });
 
     provider.track(makeEvent({ name: "Totally Custom Event" }));
