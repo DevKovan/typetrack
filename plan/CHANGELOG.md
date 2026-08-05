@@ -257,3 +257,50 @@ are the record, this is just a trail of what happened when.
   this repo's "no new toolchain dependencies" policy. Per policy, this
   phase's issue files stay in `plan/phase-13-runtime-agnostic/`
   permanently.
+- Phase 14 (remaining framework wrappers): six new packages under
+  `packages/` complete VISION.md's framework-integrations target (Angular
+  excluded, per ROADMAP.md). `@typetrack/vue` — a plugin
+  (`app.use(typetrackPlugin, { analytics })`) + `useAnalytics()` composable
+  via typed `provide`/`inject`. `@typetrack/nuxt` — a `defineNuxtModule`
+  registering `@typetrack/vue`'s plugin via `@nuxt/kit`, SSR-safe, with
+  automatic pageview tracking on route change; resolves the app's
+  `Analytics` instance via an `analyticsModule` import-specifier option
+  (a live object can't cross the Node-config-time/browser-runtime
+  boundary), aliased into the generated runtime via `nuxt.options.alias`
+  (`@nuxt/kit`'s own `addAlias` doesn't exist in the installed version).
+  `@typetrack/svelte` — Svelte 5 runes-era `setContext`/`getContext` (not
+  stores) + snippets-based `<AnalyticsProvider>`; needed `esbuild-svelte`
+  wired into its own `tsup.config.ts` and an additive `svelte-check`
+  `typecheck:svelte` script/CI step, plus a repo-root `bun test
+  --conditions=browser` flag (Svelte's own package.json branches its `"."`
+  export on a `browser` condition Bun doesn't default to). `@typetrack/solid`
+  — SolidJS `createContext`/`useContext` + JSX `<AnalyticsProvider>`
+  (legacy-style `.Provider` form, not React 19's direct-context-as-element);
+  needed a per-file `@jsxImportSource solid-js` pragma (root tsconfig's
+  `"jsx": "react-jsx"` stays untouched), `tsup-preset-solid` for the build,
+  and a `"solid"` export condition — confirmed the existing `--conditions=
+  browser` flag from the Svelte package already covers Solid's own
+  server/browser export split too, no further root-level change needed.
+  `@typetrack/astro` — structurally different from every other package in
+  this phase: an Integration-API package (`astro:config:setup` +
+  `injectScript("page", ...)`) rather than a context/hook pattern, since
+  Astro ships zero client JS by default; the injected script listens for
+  `astro:page-load` and delegates to core's `dispatchPageView()`, also
+  resolving the app's `Analytics` instance via an `analyticsModule`
+  specifier. `@typetrack/remix` — targets React Router v8 framework mode
+  exclusively (Remix itself reached EOL in 2026, merged into React Router;
+  `peerDependencies.react-router: ^8.0.0`, never `react-router-dom`/
+  `@remix-run/*`); a thin re-export of `@typetrack/react`'s
+  `AnalyticsProvider`/`useAnalytics` (no `"use client"`-equivalent boundary
+  needed — v8's default framework mode has no RSC split) plus a
+  `useLocation()`-based `AnalyticsPageView` (simpler than Next's
+  `usePathname`/`useSearchParams` pair, no Suspense wrapper needed). SvelteKit/SolidStart route-tracking explicitly deferred (both
+  packages work unmodified inside their meta-frameworks; only automatic
+  router-driven pageview tracking is out of scope). Shipped
+  `examples/frameworks/` for all six: Vue/Svelte/Solid are genuinely
+  tested-in-repo (each framework's own official testing-library + happy-dom
+  for CSR, a dependency-free `renderToString`-equivalent for SSR);
+  Nuxt/Astro/Remix are realistic source-plus-README-only entries, not
+  wired into this repo's own test suite, per the same "no new toolchain
+  dependencies" policy Phase 13 established. Per policy, this phase's issue
+  files stay in `plan/phase-14-framework-wrappers/` permanently.
