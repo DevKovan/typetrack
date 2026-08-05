@@ -46,6 +46,24 @@
   be refreshed before `packages/react`'s `tsup --dts` build (which
   re-exports types from `typetrack`) can resolve it.
 
+- **Never `mock.module()` a vendor SDK in tests.** `bun test` runs the
+  whole monorepo in one shared process and evaluates every test file's
+  top-level code — including `mock.module()` calls — before running any
+  hook (`afterAll` included), so a module mock set up in one file can leak
+  into another file's real-network integration test with no reliable way
+  to undo it afterward (confirmed the hard way in Phase 13:
+  `provider-posthog`/`provider-segment` had `mock.module("posthog-node"/
+  "@segment/analytics-node", ...)` unit tests that passed locally every
+  time but failed deterministically on CI, because which file's top-level
+  code runs first differs by environment). Use dependency injection
+  instead — give the production factory a `createXProviderWithClient(client,
+  config)` seam taking the SDK client as a plain parameter, and have unit
+  tests construct a hand-written fake object and pass it directly, no
+  module mocking involved. See `packages/provider-posthog/src/index.ts`'s
+  `createPostHogProviderWithClient` and
+  `packages/provider-segment/src/index.ts`'s
+  `createSegmentProviderWithClient` for the pattern to copy.
+
 For phase planning and issue breakdowns, see `plan/`. Use the
 `research-planner`, `implementor`, and `qa` subagents (`.claude/agents/`)
 for phase work; commit and branching conventions are in
