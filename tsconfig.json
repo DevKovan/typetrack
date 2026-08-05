@@ -17,7 +17,8 @@
     "noEmit": true,
     "paths": {
       "typetrack": ["./src/index.ts"],
-      "@typetrack/react": ["./packages/react/src/index.ts"]
+      "@typetrack/react": ["./packages/react/src/index.ts"],
+      "@typetrack/vue": ["./packages/vue/src/index.ts"]
     }
   },
   "include": ["src", "packages/*/src", "examples/core/*", "examples/providers/*", "examples/middleware/*", "examples/plugins/*", "examples/recipes/*", "tsup.config.ts"]
