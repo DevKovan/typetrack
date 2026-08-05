@@ -1,0 +1,47 @@
+{
+  "name": "@typetrack/svelte",
+  "version": "0.0.0",
+  "description": "Svelte 5 bindings (AnalyticsProvider, useAnalytics) for typetrack.",
+  "license": "MIT",
+  "type": "module",
+  "private": false,
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "lint": "oxlint",
+    "typecheck": "tsgo --noEmit",
+    "typecheck:tsc": "tsc --noEmit",
+    "typecheck:svelte": "svelte-check",
+    "test": "bun test --conditions=browser"
+  },
+  "peerDependencies": {
+    "svelte": "^5.0.0"
+  },
+  "dependencies": {
+    "typetrack": "file:../.."
+  },
+  "devDependencies": {
+    "@happy-dom/global-registrator": "20.11.1",
+    "@testing-library/svelte": "5.4.2",
+    "@typescript/native-preview": "7.0.0-dev.20260707.2",
+    "bun-plugin-svelte": "0.0.6",
+    "knip": "6.31.0",
+    "oxlint": "1.76.0",
+    "svelte": "5.56.8",
+    "svelte-check": "4.7.4",
+    "tsup": "8.5.1",
+    "typescript": "6.0.3"
+  }
+}

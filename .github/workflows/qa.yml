@@ -48,7 +48,29 @@ jobs:
         run: bun run lint
       - name: Typecheck
         run: bun run typecheck || bun run typecheck:tsc
+      - name: Typecheck (Svelte templates)
+        # `tsc`/`tsgo` (invoked by the "Typecheck" step above, via the root
+        # `bun run typecheck`/`typecheck:tsc` scripts) never parse `.svelte`
+        # syntax at all, so `packages/svelte/src/AnalyticsProvider.svelte`'s
+        # own `<script>` block gets zero type-checking from that step alone.
+        # `svelte-check` (Svelte's own official type-checking tool) is this
+        # package's own, additional, additive fix -- run as one targeted,
+        # per-package invocation here, mirroring how the Build step already
+        # runs targeted per-package commands (via `bun run build:all`) for
+        # `packages/react`/`packages/next`/`packages/vue`/`packages/nuxt`.
+        run: cd packages/svelte && bun run typecheck:svelte
       - name: Test
-        run: bun test
+        # `--conditions=browser`: `svelte`'s own `package.json` `"exports"`
+        # field branches "." on a `"browser"` vs `"worker"`/`"default"`
+        # condition, and Bun (a server-like runtime) does not include
+        # `"browser"` in its default resolution conditions -- without this
+        # flag, `packages/svelte`'s own `@testing-library/svelte`-based
+        # tests resolve Svelte's *server-side* `mount` (throws
+        # `lifecycle_function_unavailable`) instead of its client-side one.
+        # Confirmed by hand to be a safe, no-op addition for every other
+        # package's own tests (none of their dependencies branch on a
+        # `"browser"` export condition the way `svelte` does). Mirrors root
+        # `package.json`'s own `"test"` script.
+        run: bun test --conditions=browser
       - name: Unused code check
         run: bunx knip
