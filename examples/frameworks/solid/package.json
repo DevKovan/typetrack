@@ -1,0 +1,23 @@
+{
+  "name": "example-frameworks-solid",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "bun run index.ts",
+    "test": "bun test --conditions=browser"
+  },
+  "dependencies": {
+    "typetrack": "file:../../..",
+    "@typetrack/solid": "workspace:*",
+    "solid-js": "1.9.14"
+  },
+  "devDependencies": {
+    "@babel/core": "7.29.7",
+    "@babel/preset-typescript": "7.29.7",
+    "@happy-dom/global-registrator": "20.11.1",
+    "@solidjs/testing-library": "0.8.10",
+    "@types/babel__core": "7.20.5",
+    "babel-preset-solid": "1.9.12"
+  }
+}

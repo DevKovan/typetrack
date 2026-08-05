@@ -1,0 +1,43 @@
+---
+// Astro ships zero client JS by default (islands architecture) -- there is
+// no persistent, app-wide component tree for a context/hook pattern to
+// attach to (see `plan/phase-14-framework-wrappers/BRIEF.md`'s Design
+// decision 6, and `packages/astro/src/index.ts`'s own header comment).
+// `@typetrack/astro` only handles *automatic pageview tracking*
+// (`astro:page-load`, injected into every page) -- a custom event like the
+// sign-up below is fired by the app's own plain `<script>`, importing
+// `analyticsModule` directly, exactly like the injected pageview script
+// itself does.
+import Layout from "../layouts/Layout.astro";
+---
+
+<Layout title="Sign up">
+  <form id="signup-form">
+    <input type="email" name="email" placeholder="you@example.com" />
+    <button type="submit">Sign up</button>
+    <p id="confirmation" hidden>Thanks for signing up!</p>
+  </form>
+
+  <script>
+    // A plain, dependency-free client-side script (no client-directive
+    // island framework required for this -- `@typetrack/astro` itself has
+    // no framework dependency either). Imports the same app-authored
+    // `analyticsModule` `astro.config.mjs` names, processed and resolved by
+    // Astro's own Vite pipeline, exactly like `@typetrack/astro`'s own
+    // injected pageview script does.
+    import analytics from "../lib/analytics";
+
+    const form = document.querySelector<HTMLFormElement>("#signup-form")!;
+    const confirmation = document.querySelector<HTMLParagraphElement>("#confirmation")!;
+
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const email = new FormData(form).get("email");
+      if (typeof email !== "string" || !email.includes("@")) return;
+
+      void analytics.identify(email, { plan: "free", source: "signup_form" });
+      void analytics.track("User Signed Up", { plan: "free" });
+      confirmation.hidden = false;
+    });
+  </script>
+</Layout>

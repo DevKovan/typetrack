@@ -53,6 +53,51 @@
         "typetrack": "file:../../..",
       },
     },
+    "examples/frameworks/solid": {
+      "name": "example-frameworks-solid",
+      "version": "0.0.0",
+      "dependencies": {
+        "@typetrack/solid": "workspace:*",
+        "solid-js": "1.9.14",
+        "typetrack": "file:../../..",
+      },
+      "devDependencies": {
+        "@babel/core": "7.29.7",
+        "@babel/preset-typescript": "7.29.7",
+        "@happy-dom/global-registrator": "20.11.1",
+        "@solidjs/testing-library": "0.8.10",
+        "@types/babel__core": "7.20.5",
+        "babel-preset-solid": "1.9.12",
+      },
+    },
+    "examples/frameworks/svelte": {
+      "name": "example-frameworks-svelte",
+      "version": "0.0.0",
+      "dependencies": {
+        "@typetrack/svelte": "workspace:*",
+        "svelte": "5.56.8",
+        "typetrack": "file:../../..",
+      },
+      "devDependencies": {
+        "@happy-dom/global-registrator": "20.11.1",
+        "@testing-library/svelte": "5.4.2",
+        "bun-plugin-svelte": "0.0.6",
+      },
+    },
+    "examples/frameworks/vue": {
+      "name": "example-frameworks-vue",
+      "version": "0.0.0",
+      "dependencies": {
+        "@typetrack/vue": "workspace:*",
+        "typetrack": "file:../../..",
+        "vue": "3.5.41",
+      },
+      "devDependencies": {
+        "@happy-dom/global-registrator": "20.11.1",
+        "@vue/server-renderer": "3.5.41",
+        "@vue/test-utils": "2.4.11",
+      },
+    },
     "examples/middleware/pipeline-basics": {
       "name": "example-middleware-pipeline-basics",
       "version": "0.0.0",
@@ -1343,6 +1388,12 @@
 
     "example-core-provider-switch": ["example-core-provider-switch@workspace:examples/core/provider-switch"],
 
+    "example-frameworks-solid": ["example-frameworks-solid@workspace:examples/frameworks/solid"],
+
+    "example-frameworks-svelte": ["example-frameworks-svelte@workspace:examples/frameworks/svelte"],
+
+    "example-frameworks-vue": ["example-frameworks-vue@workspace:examples/frameworks/vue"],
+
     "example-middleware-pipeline-basics": ["example-middleware-pipeline-basics@workspace:examples/middleware/pipeline-basics"],
 
     "example-middleware-sampling-vs-routing": ["example-middleware-sampling-vs-routing@workspace:examples/middleware/sampling-vs-routing"],
@@ -2263,9 +2314,7 @@
 
     "@testing-library/jest-dom/dom-accessibility-api": ["dom-accessibility-api@0.6.3", "", {}, "sha512-7ZgogeTnjuHbo+ct10G9Ffp0mif17idi0IyWNVA/wcwcm7NPOD/WEHVP3n7n3MhXqxoIYm8d6MuZohYWIZ4T3w=="],
 
-    "@typetrack/react/typetrack": ["typetrack@root:", {}],
-
-    "@typetrack/remix/typetrack": ["typetrack@root:", {}],
+    "@typetrack/solid/typetrack": ["typetrack@root:", {}],
 
     "@vercel/nft/glob": ["glob@13.0.6", "", { "dependencies": { "minimatch": "^10.2.2", "minipass": "^7.1.3", "path-scurry": "^2.0.2" } }, "sha512-Wjlyrolmm8uDpm/ogGyXZXb1Z+Ca2B8NbJwqBVg0axK9GbBeoS7yGV6vjXnYdGm6X53iehEuxxbyiKp8QmN4Vw=="],
 
@@ -2308,6 +2357,8 @@
     "dom-serializer/entities": ["entities@4.5.0", "", {}, "sha512-V0hjH4dGPh9Ao5p0MoRY6BVqtwCjhz6vI5LT8AJ55H+4g9/4vbHx1I54fS0XuclLhDHArPQCiMjDxjaL8fPxhw=="],
 
     "editorconfig/commander": ["commander@10.0.1", "", {}, "sha512-y4Mg2tXshplEbSGzx7amzPwKKOCGuoSRP/CjEdwwk0FOGlUbq6lKuoyDZTNZkmxHdJtp54hdfY/JUrdL7Xfdug=="],
+
+    "example-frameworks-solid/typetrack": ["typetrack@root:", {}],
 
     "fast-npm-meta/cac": ["cac@7.0.0", "", {}, "sha512-tixWYgm5ZoOD+3g6UTea91eow5z6AAHaho3g0V9CNSNb45gM8SmflpAc+GRd1InC4AqN/07Unrgp56Y94N9hJQ=="],
 

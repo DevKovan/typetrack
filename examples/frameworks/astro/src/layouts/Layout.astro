@@ -1,0 +1,22 @@
+---
+// A minimal layout -- `@typetrack/astro`'s own `astro:page-load` pageview
+// tracking script is injected automatically into every page (via
+// `astro.config.mjs`'s `typetrackAstro({...})` registration), with no
+// per-layout wiring needed here at all.
+interface Props {
+  title: string;
+}
+
+const { title } = Astro.props;
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>{title}</title>
+  </head>
+  <body>
+    <slot />
+  </body>
+</html>

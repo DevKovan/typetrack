@@ -1,0 +1,7 @@
+This is the literal console output produced by `bun run index.ts` -- fully
+deterministic, no random values or environment-dependent content anywhere in
+it.
+
+[frameworks/vue] server-rendering <SignUpForm> (wrapped in typetrackPlugin) via @vue/server-renderer's renderToString()...
+[frameworks/vue] rendered markup: <form><input type="email" name="email" placeholder="you@example.com"><button type="submit">Sign up</button><!----></form>
+[frameworks/vue] stub provider received 0 calls during SSR (expected 0 -- analytics fires only once a user actually submits the form, which never happens during a server render)

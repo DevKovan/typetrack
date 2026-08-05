@@ -1,0 +1,9 @@
+This is the literal console output produced by `bun run index.ts` -- fully
+deterministic, no random values or environment-dependent content anywhere in
+it.
+
+[frameworks/svelte] server-rendering ServerGreeting.svelte (svelte/compiler, generate: "server") with a real Analytics instance passed as a prop...
+[frameworks/svelte] rendered markup: <!--[--><p>Welcome, you're signed up!</p><!--]-->
+[frameworks/svelte] stub provider received 1 call(s) during that server render -- no browser-global crash
+[frameworks/svelte] calling createAnalytics().identify()/track()/flush() directly, server-side (e.g. a SvelteKit server action) -- no Svelte component involved...
+[frameworks/svelte] stub provider received 3 calls (identify, track, flush) -- core's own already-verified SSR safety (Phase 9/13)

@@ -1,0 +1,7 @@
+This is the literal console output produced by `bun run index.ts` -- fully
+deterministic, no random values or environment-dependent content anywhere in
+it.
+
+[frameworks/solid] server-rendering <SignUpForm> (wrapped in AnalyticsProvider) via solid-js/web's renderToString()...
+[frameworks/solid] rendered markup: <form><input type="email" name="email" placeholder="you@example.com"><button type="submit">Sign up</button></form>
+[frameworks/solid] stub provider received 0 calls during SSR (expected 0 -- analytics fires only once a user actually submits the form, which never happens during a server render)

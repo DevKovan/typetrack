@@ -13,7 +13,10 @@
     "examples/plugins/*",
     "examples/recipes/*",
     "examples/advanced/*",
-    "examples/runtimes/bun"
+    "examples/runtimes/bun",
+    "examples/frameworks/vue",
+    "examples/frameworks/svelte",
+    "examples/frameworks/solid"
   ],
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
