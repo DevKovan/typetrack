@@ -1,6 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import type { CanonicalEvent } from "typetrack";
 import { createSegmentProvider } from "./index";
+import { Analytics as RealAnalyticsCheck } from "@segment/analytics-node";
+
+console.log(
+  "[DIAG]",
+  "Analytics.name=" + RealAnalyticsCheck.name,
+  "ctor.length=" + RealAnalyticsCheck.length,
+  "proto.page=" + typeof RealAnalyticsCheck.prototype.page,
+  "proto.track=" + typeof RealAnalyticsCheck.prototype.track,
+  "proto.group=" + typeof RealAnalyticsCheck.prototype.group,
+);
 
 // Integration test -- a real HTTP round-trip against a local Bun.serve()
 // server standing in for Segment's `{host}{path}` ingestion endpoint. Never

@@ -1,6 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import type { CanonicalEvent } from "typetrack";
 import { createPostHogProvider } from "./index";
+import { PostHog as RealPostHogCheck } from "posthog-node";
+
+console.log(
+  "[DIAG]",
+  "PostHog.name=" + RealPostHogCheck.name,
+  "ctor.length=" + RealPostHogCheck.length,
+  "proto.capture=" + typeof RealPostHogCheck.prototype.capture,
+  "proto.groupIdentify=" + typeof RealPostHogCheck.prototype.groupIdentify,
+);
 
 // Integration test -- a real HTTP round-trip against a local Bun.serve()
 // server standing in for PostHog's ingestion endpoint (`{host}/batch/`).
