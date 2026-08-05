@@ -220,3 +220,40 @@ are the record, this is just a trail of what happened when.
   backoff, priority ordering, batching, dead-letter exhaustion, and
   flush-on-unload). Per policy, this phase's issue files stay in
   `plan/phase-12-reliability/` permanently.
+- Phase 13 (runtime-agnostic adapters): added zero-vendor-dependency,
+  `fetch()`-based transports alongside the existing Node-SDK-based
+  factories in `packages/provider-posthog` (`createPostHogFetchProvider`)
+  and `packages/provider-segment` (`createSegmentFetchProvider`) — usable
+  anywhere `fetch` exists (browser, Cloudflare Workers, Vercel Edge, Bun,
+  Deno, Node 18+), verified against each vendor's own published HTTP API
+  docs. Both packages gained a shared `mapping.ts` so the SDK-based and
+  fetch-based variants within a package produce byte-for-byte-identical
+  event/property translation; the existing SDK-based factories were
+  refactored to import from it with zero behavior change. The fetch
+  variants declare `batching: false`/`offline: false` (no client-side
+  queue of their own — Phase 12's reliability queue is the intended
+  retry/offline mechanism); PostHog's fetch adapter also implements
+  `trackBatch`/`/batch/` (`capabilities.batch: true`), Segment's
+  `/v1/batch` support is explicitly deferred. Added `ProviderCapabilities.
+  runtimes` (`src/providers/index.ts`) — optional, declarative,
+  core-opaque metadata (same pattern as `batching`) listing which of
+  `"node"`/`"browser"`/`"edge"`/`"bun"`/`"deno"` a factory truthfully
+  supports; backfilled on all five factories, with the two SDK-based ones
+  researched against their installed package's own `exports` map and
+  transport internals rather than assumed (`posthog-node` ships real
+  edge/workerd `fetch()`-based entrypoints but its node/bun/deno build
+  pulls in `node:fs`, so browser is excluded; `@segment/analytics-node`
+  has no edge export condition and a transitive dependency resolves to a
+  `node:crypto` build, so only node/bun/deno are declared). Added
+  dedicated SSR-safety test coverage (`src/ssr-safety.test.ts` plus one
+  per provider package) that deletes every browser global from
+  `globalThis` and exercises `createAnalytics()` — with no options and
+  with every browser-touching option enabled at once — end-to-end,
+  confirming the existing `isBrowserEnvironment()`/try-catch guards
+  already hold (no SSR-unsafe path was found; test-coverage-only). Shipped
+  `examples/runtimes/` (Cloudflare Worker, Vercel Edge, Bun, Deno) — only
+  the Bun example is genuinely runnable/wired into this repo's own test
+  suite, the other three are realistic source-plus-README entries per
+  this repo's "no new toolchain dependencies" policy. Per policy, this
+  phase's issue files stay in `plan/phase-13-runtime-agnostic/`
+  permanently.
