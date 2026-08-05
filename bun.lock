@@ -232,6 +232,35 @@
         "react-dom": "^19.0.0",
       },
     },
+    "packages/remix": {
+      "name": "@typetrack/remix",
+      "version": "0.0.0",
+      "dependencies": {
+        "@typetrack/react": "workspace:*",
+        "typetrack": "file:../..",
+      },
+      "devDependencies": {
+        "@happy-dom/global-registrator": "20.11.1",
+        "@testing-library/dom": "10.4.1",
+        "@testing-library/jest-dom": "7.0.0",
+        "@testing-library/react": "16.3.2",
+        "@types/react": "19.2.18",
+        "@types/react-dom": "19.2.4",
+        "@typescript/native-preview": "7.0.0-dev.20260707.2",
+        "knip": "6.31.0",
+        "oxlint": "1.76.0",
+        "react": "19.2.8",
+        "react-dom": "19.2.8",
+        "react-router": "8.3.0",
+        "tsup": "8.5.1",
+        "typescript": "6.0.3",
+      },
+      "peerDependencies": {
+        "react": "^19.0.0",
+        "react-dom": "^19.0.0",
+        "react-router": "^8.0.0",
+      },
+    },
     "packages/solid": {
       "name": "@typetrack/solid",
       "version": "0.0.0",
@@ -967,6 +996,8 @@
     "@typetrack/provider-segment": ["@typetrack/provider-segment@workspace:packages/provider-segment"],
 
     "@typetrack/react": ["@typetrack/react@workspace:packages/react"],
+
+    "@typetrack/remix": ["@typetrack/remix@workspace:packages/remix"],
 
     "@typetrack/solid": ["@typetrack/solid@workspace:packages/solid"],
 
@@ -1838,6 +1869,8 @@
 
     "react-is": ["react-is@17.0.2", "", {}, "sha512-w2GsyukL62IJnlaff/nRegPQR94C/XXamvMWmSHRJ4y7Ts/4ocGRmTHvOs8PSE6pB3dWOrD/nueuU5sduBsQ4w=="],
 
+    "react-router": ["react-router@8.3.0", "", { "dependencies": { "cookie-es": "^3.1.1" }, "peerDependencies": { "react": ">=19.2.7", "react-dom": ">=19.2.7" }, "optionalPeers": ["react-dom"] }, "sha512-qyPMvW83jGIct3yiieisxdk9M745anqhpIMKN5m1t6yBMfgVPpt77aHOqs5fUlEJRMCGffg9BaQLH9oPVOL7xQ=="],
+
     "readable-stream": ["readable-stream@4.7.0", "", { "dependencies": { "abort-controller": "^3.0.0", "buffer": "^6.0.3", "events": "^3.3.0", "process": "^0.11.10", "string_decoder": "^1.3.0" } }, "sha512-oIGGmcpTLwPga8Bn6/Z75SVaH1z5dUut2ibSyAMVhmUggWpmDn2dapB0n7f8nwaSiRtepAsfJyfXIO5DCVAODg=="],
 
     "readdir-glob": ["readdir-glob@1.1.3", "", { "dependencies": { "minimatch": "^5.1.0" } }, "sha512-v05I2k7xN8zXvPD9N+z/uhXPaj0sUFCe2rcWZIpBsqxfP7xXFQ0tipAd/wjj1YxWyWtUS5IDJpOG82JKt2EAVA=="],
@@ -2230,23 +2263,9 @@
 
     "@testing-library/jest-dom/dom-accessibility-api": ["dom-accessibility-api@0.6.3", "", {}, "sha512-7ZgogeTnjuHbo+ct10G9Ffp0mif17idi0IyWNVA/wcwcm7NPOD/WEHVP3n7n3MhXqxoIYm8d6MuZohYWIZ4T3w=="],
 
-    "@typetrack/next/typetrack": ["typetrack@root:", { "bin": { "typetrack": "./dist/cli.js" } }],
+    "@typetrack/react/typetrack": ["typetrack@root:", {}],
 
-    "@typetrack/nuxt/typetrack": ["typetrack@root:", { "bin": { "typetrack": "./dist/cli.js" } }],
-
-    "@typetrack/provider-ga4/typetrack": ["typetrack@root:", { "bin": { "typetrack": "./dist/cli.js" } }],
-
-    "@typetrack/provider-posthog/typetrack": ["typetrack@root:", { "bin": { "typetrack": "./dist/cli.js" } }],
-
-    "@typetrack/provider-segment/typetrack": ["typetrack@root:", { "bin": { "typetrack": "./dist/cli.js" } }],
-
-    "@typetrack/react/typetrack": ["typetrack@root:", { "bin": { "typetrack": "./dist/cli.js" } }],
-
-    "@typetrack/solid/typetrack": ["typetrack@root:", { "bin": { "typetrack": "./dist/cli.js" } }],
-
-    "@typetrack/svelte/typetrack": ["typetrack@root:", { "bin": { "typetrack": "./dist/cli.js" } }],
-
-    "@typetrack/vue/typetrack": ["typetrack@root:", { "bin": { "typetrack": "./dist/cli.js" } }],
+    "@typetrack/remix/typetrack": ["typetrack@root:", {}],
 
     "@vercel/nft/glob": ["glob@13.0.6", "", { "dependencies": { "minimatch": "^10.2.2", "minipass": "^7.1.3", "path-scurry": "^2.0.2" } }, "sha512-Wjlyrolmm8uDpm/ogGyXZXb1Z+Ca2B8NbJwqBVg0axK9GbBeoS7yGV6vjXnYdGm6X53iehEuxxbyiKp8QmN4Vw=="],
 
@@ -2289,30 +2308,6 @@
     "dom-serializer/entities": ["entities@4.5.0", "", {}, "sha512-V0hjH4dGPh9Ao5p0MoRY6BVqtwCjhz6vI5LT8AJ55H+4g9/4vbHx1I54fS0XuclLhDHArPQCiMjDxjaL8fPxhw=="],
 
     "editorconfig/commander": ["commander@10.0.1", "", {}, "sha512-y4Mg2tXshplEbSGzx7amzPwKKOCGuoSRP/CjEdwwk0FOGlUbq6lKuoyDZTNZkmxHdJtp54hdfY/JUrdL7Xfdug=="],
-
-    "example-advanced-offline-resilient-tracking/typetrack": ["typetrack@root:", { "bin": { "typetrack": "./dist/cli.js" } }],
-
-    "example-core-canonical-event-shape/typetrack": ["typetrack@root:", { "bin": { "typetrack": "./dist/cli.js" } }],
-
-    "example-core-context-capture/typetrack": ["typetrack@root:", { "bin": { "typetrack": "./dist/cli.js" } }],
-
-    "example-core-provider-switch/typetrack": ["typetrack@root:", { "bin": { "typetrack": "./dist/cli.js" } }],
-
-    "example-middleware-pipeline-basics/typetrack": ["typetrack@root:", { "bin": { "typetrack": "./dist/cli.js" } }],
-
-    "example-middleware-sampling-vs-routing/typetrack": ["typetrack@root:", { "bin": { "typetrack": "./dist/cli.js" } }],
-
-    "example-plugins-landing-page-engagement/typetrack": ["typetrack@root:", { "bin": { "typetrack": "./dist/cli.js" } }],
-
-    "example-plugins-site-reliability-and-vitals/typetrack": ["typetrack@root:", { "bin": { "typetrack": "./dist/cli.js" } }],
-
-    "example-providers-multi-provider-routing/typetrack": ["typetrack@root:", { "bin": { "typetrack": "./dist/cli.js" } }],
-
-    "example-recipes-anonymous-and-cookieless-tracking/typetrack": ["typetrack@root:", { "bin": { "typetrack": "./dist/cli.js" } }],
-
-    "example-recipes-consent-gated-tracking/typetrack": ["typetrack@root:", { "bin": { "typetrack": "./dist/cli.js" } }],
-
-    "example-runtimes-bun/typetrack": ["typetrack@root:", { "bin": { "typetrack": "./dist/cli.js" } }],
 
     "fast-npm-meta/cac": ["cac@7.0.0", "", {}, "sha512-tixWYgm5ZoOD+3g6UTea91eow5z6AAHaho3g0V9CNSNb45gM8SmflpAc+GRd1InC4AqN/07Unrgp56Y94N9hJQ=="],
 

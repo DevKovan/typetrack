@@ -36,7 +36,7 @@
   ],
   "scripts": {
     "build": "tsup",
-    "build:all": "bun run build && bun install && cd packages/react && bun run build && cd ../next && bun run build && cd ../vue && bun run build && cd ../nuxt && bun run build && cd ../svelte && bun run build && cd ../solid && bun run build && cd ../astro && bun run build",
+    "build:all": "bun run build && bun install && cd packages/react && bun run build && cd ../next && bun run build && cd ../vue && bun run build && cd ../nuxt && bun run build && cd ../svelte && bun run build && cd ../solid && bun run build && cd ../astro && bun run build && cd ../remix && bun run build",
     "lint": "oxlint",
     "typecheck": "tsgo --noEmit",
     "typecheck:tsc": "tsc --noEmit",
