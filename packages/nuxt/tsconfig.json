@@ -1,0 +1,21 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    // Reset (not merged -- an explicit `paths` here fully replaces the
+    // inherited one) the root tsconfig's `"typetrack"`/`"@typetrack/vue"`
+    // aliases. Those aliases exist so root `src`/`packages/provider-*`/
+    // `packages/nuxt` (as a *dependent*) code can typecheck against
+    // sibling source directly without a build step first -- but for this
+    // package's OWN `src`, both `typetrack` and `@typetrack/vue` instead
+    // need to resolve through normal `node_modules` resolution (this
+    // package's own `dependencies.typetrack: "file:../.."` /
+    // `dependencies["@typetrack/vue"]: "workspace:*"`, symlinked into
+    // `packages/nuxt/node_modules`) -- otherwise `tsup`'s `.d.ts` bundling
+    // step sees the same types reachable via two different resolution paths
+    // and fails with "Circular definition of import alias". Mirrors
+    // `packages/next/tsconfig.json` exactly (same reasoning, one more
+    // sibling dependency).
+    "paths": {}
+  },
+  "include": ["src"]
+}

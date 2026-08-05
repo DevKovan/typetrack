@@ -1,5 +1,18 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema.json",
+  // `packages/nuxt/src/runtime/plugin.ts`/`pageview.client.ts` statically
+  // import `#typetrack/analytics-module` -- a Nuxt build-time alias
+  // `packages/nuxt/src/module.ts`'s `setupTypetrackModule()` registers into
+  // `nuxt.options.alias` at real Nuxt build time (see that file's header
+  // comment), resolved for `tsgo`/`tsc` purposes via an ambient module
+  // declaration (`packages/nuxt/src/runtime/analytics-module.d.ts`) rather
+  // than a real file on disk. Knip's static analysis doesn't understand
+  // ambient module declarations for import-resolution purposes (confirmed
+  // by hand), so it otherwise reports this specifier as an unresolved
+  // import -- a false positive for a deliberately virtual specifier, not a
+  // real defect (mirrors this repo's own pre-existing, documented knip
+  // limitation for `.vue`/`.svelte`/`.astro` template markup).
+  "ignoreUnresolved": ["^#typetrack/"],
   "workspaces": {
     ".": {
       "entry": ["src/index.ts", "src/devServer/index.ts", "src/cli/index.ts"],
