@@ -1,33 +1,15 @@
 import { PostHog } from "posthog-node";
 import type { AnalyticsProvider, CanonicalEvent } from "typetrack";
+import {
+  DEFAULT_EVENT_MAP,
+  mergePropertyMap,
+  translateEventName as translateEventNameShared,
+  translateProperties,
+  type PostHogPropertyMap,
+} from "./mapping";
 
-// Default canonical-event-name -> PostHog event-name table. PostHog imposes
-// no vendor-mandated ecommerce-event-naming scheme: `capture()` accepts any
-// string as an event name, and PostHog's own ecommerce-event-spec docs
-// (https://posthog.com/docs/data/event-spec/ecommerce-events) describe an
-// *optional, recommended* naming convention, not an enforced one. So this
-// default table is identity/passthrough for the six shared canonical event
-// names -- overriding via `config.eventMap` still works, but no spurious
-// "unmapped name" warning fires for the names typetrack ships by default.
-const DEFAULT_EVENT_MAP: Record<string, string> = {
-  "User Signed Up": "User Signed Up",
-  "User Logged In": "User Logged In",
-  "Checkout Started": "Checkout Started",
-  "Purchase Completed": "Purchase Completed",
-  "Product Viewed": "Product Viewed",
-  "Search Performed": "Search Performed",
-};
-
-// Shape of the property-name mapping table: an optional global fallback plus
-// optional per-event overrides, merged with the same override-wins rules as
-// the GA4 adapter (issue 003). PostHog has no vendor-mandated property
-// naming either, so the default table below is empty (pure passthrough).
-export interface PostHogPropertyMap {
-  global?: Record<string, string>;
-  events?: Record<string, Record<string, string>>;
-}
-
-const DEFAULT_PROPERTY_MAP: PostHogPropertyMap = {};
+export type { PostHogPropertyMap };
+export { createPostHogFetchProvider, type PostHogFetchProviderConfig } from "./fetch";
 
 // Config accepted by `createPostHogProvider`. A deliberate subset of
 // `posthog-node`'s `PostHogOptions` -- only the options this adapter has been
@@ -45,46 +27,6 @@ export interface PostHogProviderConfig {
   disableGeoip?: boolean;
   eventMap?: Record<string, string>;
   propertyMap?: PostHogPropertyMap;
-}
-
-// Merges a `config.propertyMap` override over `DEFAULT_PROPERTY_MAP`:
-// `global` merges shallowly (override wins per key); `events` merges
-// per-event-key, so for every event key present in either the default or the
-// override, the merged per-event map is `{ ...defaultEvents[key],
-// ...overrideEvents[key] }` (override wins within that event's map; a key
-// present only in the override is included as-is).
-function mergePropertyMap(
-  override?: PostHogPropertyMap,
-): { global: Record<string, string>; events: Record<string, Record<string, string>> } {
-  const global = { ...DEFAULT_PROPERTY_MAP.global, ...override?.global };
-  const eventKeys = new Set([
-    ...Object.keys(DEFAULT_PROPERTY_MAP.events ?? {}),
-    ...Object.keys(override?.events ?? {}),
-  ]);
-  const events: Record<string, Record<string, string>> = {};
-  for (const key of eventKeys) {
-    events[key] = { ...DEFAULT_PROPERTY_MAP.events?.[key], ...override?.events?.[key] };
-  }
-  return { global, events };
-}
-
-// Property translation is applied to `event.properties` only, for `track()`
-// -- not for `page()`/`screen()`, whose properties are folded directly from
-// `event.properties` with no event-name-keyed lookup, since both always map
-// to their own fixed PostHog event name ("$pageview"/"$screen"), never
-// through `eventMap`. For each key, look up the per-event override first,
-// then the global map, else pass the key through unchanged.
-function translateProperties(
-  eventName: string,
-  properties: Record<string, unknown>,
-  propertyMap: { global: Record<string, string>; events: Record<string, Record<string, string>> },
-): Record<string, unknown> {
-  const perEvent = propertyMap.events[eventName];
-  const translated: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(properties)) {
-    translated[perEvent?.[key] ?? propertyMap.global[key] ?? key] = value;
-  }
-  return translated;
 }
 
 // Synchronously constructs exactly one `posthog-node` client and returns an
@@ -107,18 +49,11 @@ export function createPostHogProvider(config: PostHogProviderConfig): AnalyticsP
 
   // Unmapped-canonical-event-name warn-once bookkeeping: at most one
   // `console.warn` per unique unmapped name for the lifetime of this
-  // provider instance.
+  // provider instance. `warnedEventNames` is this instance's own `Set`, per
+  // `mapping.ts`'s `translateEventName` contract.
   const warnedEventNames = new Set<string>();
   function translateEventName(name: string): string {
-    const mapped = eventMap[name];
-    if (mapped !== undefined) return mapped;
-    if (!warnedEventNames.has(name)) {
-      warnedEventNames.add(name);
-      console.warn(
-        `[typetrack:posthog] Unmapped canonical event name "${name}"; passing it through to PostHog unchanged.`,
-      );
-    }
-    return name;
+    return translateEventNameShared(name, eventMap, warnedEventNames);
   }
 
   return {
