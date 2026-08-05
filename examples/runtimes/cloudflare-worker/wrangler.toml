@@ -1,0 +1,17 @@
+# Config file only -- not installed, parsed, or invoked by anything in this
+# repo (see this directory's README.md "Testing" note). A reader copying
+# `src/index.ts` into their own Worker project would place a file like this
+# at their project root and run it with their own `wrangler` CLI install
+# (`npm install -g wrangler`, or a per-project devDependency).
+
+name = "typetrack-runtimes-example"
+main = "src/index.ts"
+compatibility_date = "2026-01-01"
+
+# Configured via `wrangler secret put GA4_API_SECRET` (never committed to
+# source) -- `GA4_MEASUREMENT_ID` is not secret and can live in `[vars]`.
+[vars]
+GA4_MEASUREMENT_ID = "G-XXXXXXXXXX"
+
+# GA4_API_SECRET is intentionally NOT set here -- it belongs in a Worker
+# secret (`wrangler secret put GA4_API_SECRET`), never plaintext `[vars]`.

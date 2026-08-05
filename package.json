@@ -12,7 +12,8 @@
     "examples/middleware/*",
     "examples/plugins/*",
     "examples/recipes/*",
-    "examples/advanced/*"
+    "examples/advanced/*",
+    "examples/runtimes/bun"
   ],
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",

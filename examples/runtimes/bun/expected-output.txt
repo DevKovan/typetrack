@@ -1,0 +1,11 @@
+This is the literal console output produced by `bun run index.ts` -- exactly
+reproducible on every run EXCEPT the port number in the first line (`Bun.serve
+({ port: 0, ... })` binds a fresh OS-assigned local port every run); nothing
+else in this output depends on any random value or environment.
+
+[bun-runtime] local Segment-HTTP-API stub listening at http://127.0.0.1:<os-assigned-port> (never real Segment infrastructure)
+[bun-runtime] createSegmentFetchProvider constructed -- zero vendor dependency, plain fetch() -- runs identically under Bun, Node 18+, browsers, and edge runtimes
+[bun-runtime] identify("user_bun_512", { plan: "team" })
+[bun-runtime] track("Product Viewed", {"sku":"TT-HOODIE-CHARCOAL-L","price":54})
+[bun-runtime] track("Checkout Started", {"cartTotal":83,"itemCount":3})
+[bun-runtime] flush() + destroy() complete -- 3 requests reached the local stub

@@ -102,6 +102,14 @@
         "typetrack": "file:../../..",
       },
     },
+    "examples/runtimes/bun": {
+      "name": "example-runtimes-bun",
+      "version": "0.0.0",
+      "dependencies": {
+        "@typetrack/provider-segment": "workspace:*",
+        "typetrack": "file:../../..",
+      },
+    },
     "packages/next": {
       "name": "@typetrack/next",
       "version": "0.0.0",
@@ -640,6 +648,8 @@
 
     "example-recipes-consent-gated-tracking": ["example-recipes-consent-gated-tracking@workspace:examples/recipes/consent-gated-tracking"],
 
+    "example-runtimes-bun": ["example-runtimes-bun@workspace:examples/runtimes/bun"],
+
     "fd-package-json": ["fd-package-json@2.0.0", "", { "dependencies": { "walk-up-path": "^4.0.0" } }, "sha512-jKmm9YtsNXN789RS/0mSzOC1NUq9mkVd65vbSSVsKdjGvYXBuE4oWe2QOEoFeRmJg+lPuZxpmrfFclNhoRMneQ=="],
 
     "fdir": ["fdir@6.5.0", "", { "peerDependencies": { "picomatch": "^3 || ^4" }, "optionalPeers": ["picomatch"] }, "sha512-tIbYtZbucOs0BRGqPJkshJUYdL+SDH7dVM8gjy+ERp3WAUjLEFJE+02kanyHtwjWOnwrKYBiwAmM0p4kLJAnXg=="],
@@ -790,7 +800,9 @@
 
     "@testing-library/jest-dom/dom-accessibility-api": ["dom-accessibility-api@0.6.3", "", {}, "sha512-7ZgogeTnjuHbo+ct10G9Ffp0mif17idi0IyWNVA/wcwcm7NPOD/WEHVP3n7n3MhXqxoIYm8d6MuZohYWIZ4T3w=="],
 
-    "example-advanced-offline-resilient-tracking/typetrack": ["typetrack@root:", {}],
+    "@typetrack/provider-segment/typetrack": ["typetrack@root:", {}],
+
+    "example-runtimes-bun/typetrack": ["typetrack@root:", {}],
 
     "tsup/chokidar": ["chokidar@4.0.3", "", { "dependencies": { "readdirp": "^4.0.1" } }, "sha512-Qgzu8kfBvo+cA4962jnP1KkS6Dop5NS6g7R5LFYJr4b8Ub94PPQXUksCw9PvXoeXPRRddRNC5C1JQUR2SMGtnA=="],
 
