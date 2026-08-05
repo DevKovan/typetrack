@@ -1,5 +1,6 @@
 import { afterAll, beforeEach, describe, expect, it, mock } from "bun:test";
 import type { CanonicalEvent } from "typetrack";
+import { PostHog as RealPostHog } from "posthog-node";
 
 // Unit tests -- no real network I/O. `posthog-node`'s `PostHog` export is
 // replaced with an in-memory fake before `./index` is imported, so
@@ -10,8 +11,11 @@ import type { CanonicalEvent } from "typetrack";
 // `./index.ts`'s `PostHog` import binding stays live, so leaving this mock
 // in place would silently poison every later file's real
 // `createPostHogProvider` (e.g. `index.integration.test.ts`) with this fake
-// instead. `afterAll`'s `mock.restore()` undoes it once this file's tests
-// finish, regardless of file execution order.
+// instead. `mock.restore()` does *not* undo `mock.module()` (verified
+// empirically against Bun 1.3.14 -- it only restores plain `mock()` spies),
+// so `afterAll` instead re-mocks `posthog-node` back to the real `PostHog`
+// class (captured above, before this file's own mock is ever applied),
+// once this file's tests finish, regardless of file execution order.
 interface CaptureCall {
   distinctId: string;
   event: string;
@@ -83,7 +87,7 @@ class FakePostHog {
 mock.module("posthog-node", () => ({ PostHog: FakePostHog }));
 
 afterAll(() => {
-  mock.restore();
+  mock.module("posthog-node", () => ({ PostHog: RealPostHog }));
 });
 
 const { createPostHogProvider } = await import("./index");

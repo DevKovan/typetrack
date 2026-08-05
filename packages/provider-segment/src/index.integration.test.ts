@@ -1,16 +1,18 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import type { CanonicalEvent } from "typetrack";
 import { createSegmentProvider } from "./index";
-import { Analytics as RealAnalyticsCheck } from "@segment/analytics-node";
+import { Analytics } from "@segment/analytics-node";
 
-console.log(
-  "[DIAG]",
-  "Analytics.name=" + RealAnalyticsCheck.name,
-  "ctor.length=" + RealAnalyticsCheck.length,
-  "proto.page=" + typeof RealAnalyticsCheck.prototype.page,
-  "proto.track=" + typeof RealAnalyticsCheck.prototype.track,
-  "proto.group=" + typeof RealAnalyticsCheck.prototype.group,
-);
+// Guard against cross-file `mock.module()` pollution (see the `afterAll`
+// restoration comments in `./index.test.ts`/`./fetch.test.ts`/
+// `./ssr-safety.test.ts`): if any of those files' fake ever leaks into this
+// real-network integration suite, fail loudly and specifically here instead
+// of producing confusing "received length 0" assertion failures below.
+if (Analytics.name !== "Analytics") {
+  throw new Error(
+    `@segment/analytics-node's Analytics export is "${Analytics.name}", not the real SDK class -- a mock.module() call from another test file leaked into this integration test's module cache.`,
+  );
+}
 
 // Integration test -- a real HTTP round-trip against a local Bun.serve()
 // server standing in for Segment's `{host}{path}` ingestion endpoint. Never

@@ -15,6 +15,7 @@
 // coverage, not because either adapter was suspected of an SSR-unsafe path.
 import { afterAll, afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
 import type { CanonicalEvent } from "typetrack";
+import { Analytics as RealAnalytics } from "@segment/analytics-node";
 
 interface TrackCall {
   userId?: string;
@@ -61,9 +62,12 @@ mock.module("@segment/analytics-node", () => ({ Analytics: FakeAnalytics }));
 // module's exports for the rest of the shared, single-process `bun test`
 // run -- left unrestored, it would silently poison every later file's real
 // `createSegmentProvider` (e.g. `index.integration.test.ts`) with this
-// fake. `mock.restore()` undoes it once this file's tests finish.
+// fake. `mock.restore()` does *not* undo `mock.module()` (verified
+// empirically against Bun 1.3.14) -- re-mock back to the real `Analytics`
+// class (captured above, before this file's own mock is ever applied)
+// instead.
 afterAll(() => {
-  mock.restore();
+  mock.module("@segment/analytics-node", () => ({ Analytics: RealAnalytics }));
 });
 
 const { createSegmentProvider } = await import("./index");

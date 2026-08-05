@@ -1,15 +1,18 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import type { CanonicalEvent } from "typetrack";
 import { createPostHogProvider } from "./index";
-import { PostHog as RealPostHogCheck } from "posthog-node";
+import { PostHog } from "posthog-node";
 
-console.log(
-  "[DIAG]",
-  "PostHog.name=" + RealPostHogCheck.name,
-  "ctor.length=" + RealPostHogCheck.length,
-  "proto.capture=" + typeof RealPostHogCheck.prototype.capture,
-  "proto.groupIdentify=" + typeof RealPostHogCheck.prototype.groupIdentify,
-);
+// Guard against cross-file `mock.module()` pollution (see the `afterAll`
+// restoration comments in `./index.test.ts`/`./fetch.test.ts`/
+// `./ssr-safety.test.ts`): if any of those files' fake ever leaks into this
+// real-network integration suite, fail loudly and specifically here instead
+// of producing confusing "received length 0" assertion failures below.
+if (PostHog.name !== "PostHog") {
+  throw new Error(
+    `posthog-node's PostHog export is "${PostHog.name}", not the real SDK class -- a mock.module() call from another test file leaked into this integration test's module cache.`,
+  );
+}
 
 // Integration test -- a real HTTP round-trip against a local Bun.serve()
 // server standing in for PostHog's ingestion endpoint (`{host}/batch/`).

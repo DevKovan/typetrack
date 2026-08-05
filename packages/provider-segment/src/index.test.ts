@@ -1,5 +1,6 @@
 import { afterAll, beforeEach, describe, expect, it, mock, spyOn } from "bun:test";
 import type { CanonicalEvent } from "typetrack";
+import { Analytics as RealAnalytics } from "@segment/analytics-node";
 
 // Unit tests -- no real network I/O. `@segment/analytics-node`'s `Analytics`
 // export is replaced with an in-memory fake before `./index` is imported, so
@@ -102,10 +103,14 @@ mock.module("@segment/analytics-node", () => ({ Analytics: FakeAnalytics }));
 // run -- `./index.ts`'s `Analytics` import binding stays live, so leaving
 // this mock in place would silently poison every later file's real
 // `createSegmentProvider` (e.g. `index.integration.test.ts`) with this fake
-// instead. `afterAll`'s `mock.restore()` undoes it once this file's tests
-// finish, regardless of file execution order.
+// instead. `mock.restore()` does *not* undo `mock.module()` (verified
+// empirically against Bun 1.3.14 -- it only restores plain `mock()`
+// spies), so `afterAll` instead re-mocks `@segment/analytics-node` back to
+// the real `Analytics` class (captured above, before this file's own mock
+// is ever applied), once this file's tests finish, regardless of file
+// execution order.
 afterAll(() => {
-  mock.restore();
+  mock.module("@segment/analytics-node", () => ({ Analytics: RealAnalytics }));
 });
 
 const { createSegmentProvider } = await import("./index");

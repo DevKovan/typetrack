@@ -1,6 +1,7 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
 import type { CanonicalEvent } from "typetrack";
 import { createPostHogFetchProvider } from "./fetch";
+import { PostHog as RealPostHog } from "posthog-node";
 
 // Unit tests -- no real network I/O. `globalThis.fetch` is stubbed before
 // each test and restored afterward, mirroring the GA4 sibling's
@@ -39,9 +40,11 @@ mock.module("posthog-node", () => ({ PostHog: FakePostHog }));
 // exports for the rest of the shared, single-process `bun test` run --
 // left unrestored, it would silently poison every later file's real
 // `createPostHogProvider` (e.g. `index.integration.test.ts`) with this
-// fake. `mock.restore()` undoes it once this file's tests finish.
+// fake. `mock.restore()` does *not* undo `mock.module()` (verified
+// empirically against Bun 1.3.14) -- re-mock back to the real `PostHog`
+// (captured above, before this file's own mock is ever applied) instead.
 afterAll(() => {
-  mock.restore();
+  mock.module("posthog-node", () => ({ PostHog: RealPostHog }));
 });
 
 const { createPostHogProvider } = await import("./index");
