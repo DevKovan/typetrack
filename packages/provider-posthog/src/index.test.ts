@@ -282,7 +282,14 @@ describe("createPostHogProvider", () => {
       featureFlags: true,
       sessionReplay: false,
       heatmaps: false,
+      runtimes: ["node", "edge", "bun", "deno"],
     });
+  });
+
+  it("declares runtimes: node/edge/bun/deno per posthog-node's own edge export conditions, browser excluded", () => {
+    const provider = createPostHogProvider({ apiKey: "test" });
+
+    expect(provider.capabilities.runtimes).toEqual(["node", "edge", "bun", "deno"]);
   });
 
   it("flush() calls client.flush() and never client.shutdown()", async () => {

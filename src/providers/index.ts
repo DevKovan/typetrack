@@ -36,6 +36,29 @@ export interface ProviderCapabilities {
   // `trackBatch` actually being implemented (mirrors every other
   // capability-flag + optional-method pairing on this interface).
   batch?: boolean;
+  // Phase 13 issue 003: purely descriptive metadata for an app author
+  // choosing an adapter for a given deployment target -- exactly like
+  // `batching` above, core never reads or branches on this to decide
+  // anything; it exists only so a reader/tool can see, without reading the
+  // adapter's own implementation, which JS runtimes a given
+  // `AnalyticsProvider` factory has actually been verified to run under
+  // (e.g. does it call a Node-only API internally, or is it built on
+  // nothing but `fetch`/other universally-available globals). Optional
+  // (unlike every other flag on this interface except `batch` above), so
+  // no pre-existing provider/test that predates this field breaks -- a
+  // provider that omits it declares nothing either way about its runtime
+  // support.
+  //
+  // `"edge"` is deliberately one shared category, not split per-vendor
+  // (`"cloudflare-workers"`/`"vercel-edge"`/etc.): Cloudflare Workers,
+  // Vercel Edge Functions, and similar V8-isolate-based runtimes share the
+  // one constraint that actually matters here -- no Node-specific globals,
+  // `fetch`-only -- so a provider verified against that shared constraint
+  // is treated as edge-compatible across all of them, without this phase
+  // needing to individually verify every vendor's isolate quirks. This is
+  // a statement about a shared *constraint*, not a claim that these
+  // runtimes are identical in every other respect.
+  runtimes?: Array<"node" | "browser" | "edge" | "bun" | "deno">;
 }
 
 export interface AnalyticsProvider {

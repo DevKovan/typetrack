@@ -1,3 +1,26 @@
+// `runtimes` research (Phase 13 issue 003), verified against the installed
+// `@segment/analytics-node@3.1.0`: its default HTTP transport
+// (`dist/cjs/lib/http-client.js`'s `FetchHTTPClient`, wired up via
+// `dist/cjs/lib/fetch.js`) is `globalThis.fetch(...)` -- plain `fetch()`,
+// never `node:http`/`node:https` -- and grepping the whole `dist/` tree for
+// `node:http`/`node:https`/`node:net` found no matches. Unlike
+// `posthog-node`, though, this package's own `package.json` declares no
+// `exports` field at all (only `main`/`module`/`types`), so there is no
+// SDK-declared edge/browser entrypoint to resolve to -- every runtime gets
+// the identical Node-oriented `dist/cjs`/`dist/esm` build. That build is
+// still safe under Node/Bun/Deno: its one runtime-sensitive dependency,
+// `@lukeed/csprng` (used transitively for UUID generation), declares a real
+// `browser` export condition of its own, but *this* package's plain
+// (conditionless) `require`/`import` of it resolves to `@lukeed/csprng`'s
+// Node build (`node/index.js`, `require("node:crypto")`) -- fine in
+// Node/Bun/Deno (all three implement `node:crypto`), but not verified safe
+// in a plain browser bundle or Cloudflare Workers/Vercel Edge (neither
+// guarantees `node:crypto`, and nothing in this dependency chain redirects
+// them to `@lukeed/csprng`'s browser build without a bundler-level
+// `browser`-condition remap this codebase doesn't control). So `runtimes`
+// below is `["node", "bun", "deno"]` -- `"browser"`/`"edge"` are omitted,
+// not because the SDK is known to fail there, but because nothing in this
+// dependency chain has been verified to work there.
 import { Analytics } from "@segment/analytics-node";
 import type { AnalyticsProvider, CanonicalEvent } from "typetrack";
 import { createEventNameTranslator, createPropertyTranslator, mergeEventMap, mergePropertyMap } from "./mapping";
@@ -72,6 +95,12 @@ export function createSegmentProvider(config: SegmentProviderConfig): AnalyticsP
   return {
     name: "segment",
 
+    // `runtimes`: see the research paragraph at the top of this file --
+    // `@segment/analytics-node`'s HTTP transport is `fetch`-based, but the
+    // package declares no edge/browser `exports` entrypoint and its
+    // `@lukeed/csprng` dependency resolves to a `node:crypto`-based build
+    // under this package's plain (conditionless) import, so only
+    // Node-API-compatible runtimes are declared.
     capabilities: {
       identify: true,
       group: true,
@@ -83,6 +112,7 @@ export function createSegmentProvider(config: SegmentProviderConfig): AnalyticsP
       featureFlags: false,
       sessionReplay: false,
       heatmaps: false,
+      runtimes: ["node", "bun", "deno"],
     },
 
     track(event) {

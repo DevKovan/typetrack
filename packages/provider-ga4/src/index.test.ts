@@ -250,10 +250,17 @@ describe("createGA4Provider (unit)", () => {
       featureFlags: false,
       sessionReplay: false,
       heatmaps: false,
+      runtimes: ["node", "browser", "edge", "bun", "deno"],
     });
     expect(provider.group).toBeUndefined();
     expect(provider.alias).toBeUndefined();
     expect(provider.screen).toBeUndefined();
+  });
+
+  it("declares runtimes: fetch-only, no Node-specific API usage", () => {
+    const provider = createGA4Provider({ measurementId: "G-TEST", apiSecret: "secret" });
+
+    expect(provider.capabilities.runtimes).toEqual(["node", "browser", "edge", "bun", "deno"]);
   });
 
   it("flush() resolves without calling fetch", async () => {

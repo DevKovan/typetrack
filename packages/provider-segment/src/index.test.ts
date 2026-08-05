@@ -349,7 +349,14 @@ describe("createSegmentProvider", () => {
       featureFlags: false,
       sessionReplay: false,
       heatmaps: false,
+      runtimes: ["node", "bun", "deno"],
     });
+  });
+
+  it("declares runtimes: node/bun/deno only, per @segment/analytics-node's lack of edge/browser export conditions", () => {
+    const provider = createSegmentProvider({ writeKey: "test" });
+
+    expect(provider.capabilities.runtimes).toEqual(["node", "bun", "deno"]);
   });
 
   it("flush() calls the client's non-terminal flush(), never closeAndFlush()", async () => {

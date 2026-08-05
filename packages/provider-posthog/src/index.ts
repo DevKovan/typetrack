@@ -1,3 +1,29 @@
+// `runtimes` research (Phase 13 issue 003), verified against the installed
+// `posthog-node@5.47.3`: its `package.json` `exports["."]` map declares
+// distinct conditional entrypoints -- `edge`/`edge-light`/`workerd` all
+// resolve to `dist/entrypoints/index.edge.js(.mjs)`, `node` (and the bare
+// `import`/`require` fallback) resolves to `dist/entrypoints/index.node.js
+// (.mjs)`. Both entrypoints' `PostHog` class extends the same
+// `PostHogBackendClient` (`dist/client.js`), whose HTTP transport is
+// `this.options.fetch ?? fetch` -- i.e. plain `fetch()`, never `node:http`/
+// `node:https` -- confirmed by reading `dist/client.js` directly (its
+// `fetch()`/`_fetchWithRetry` methods) and by grepping the whole `dist/`
+// tree for `node:https`/`node:http`/`node:net`, which found none. So a
+// bundler/runtime that sets the `workerd` (Cloudflare Workers) or
+// `edge-light` (Vercel Edge Functions) export condition resolves to the
+// edge-flavored build automatically, with no code change needed on this
+// adapter's side -- genuine, SDK-declared edge support, not a guess.
+// `browser` is excluded, though: the package declares no `browser` export
+// condition, so a browser bundler falls through to the same bare `import`/
+// `require` fallback Node gets (`index.node.js(.mjs)`), and that entrypoint
+// unconditionally `require()`s `../extensions/error-tracking/modifiers/
+// context-lines.node.js` at module-load time, which itself does
+// `require("node:fs")` -- unconditionally, even though this adapter never
+// calls the error-tracking API that would use it. `node`/`bun`/`deno` are
+// all included: they all resolve to that same `node:fs`-requiring
+// `index.node.js` build, but all three runtimes genuinely implement
+// `node:fs` (Bun and Deno both ship substantial Node-API compatibility
+// layers), so it loads and runs there without issue.
 import { PostHog } from "posthog-node";
 import type { AnalyticsProvider, CanonicalEvent } from "typetrack";
 import {
@@ -67,7 +93,13 @@ export function createPostHogProvider(config: PostHogProviderConfig): AnalyticsP
     // declarative only this phase -- no core verb calls it yet); session
     // replay and heatmaps are `posthog-js` (browser) capture-time features
     // with no server-SDK equivalent -- this is a server-side (Node)
-    // adapter, so both are `false`.
+    // adapter, so both are `false`. `runtimes`: see the research paragraph
+    // at the top of this file -- `posthog-node`'s own `package.json`
+    // `exports` map declares real edge-runtime entrypoints (`workerd`/
+    // `edge-light`), so `"edge"` is included; `"browser"` is excluded
+    // because the package's fallback build (what a browser bundler
+    // resolves to, absent a dedicated `browser` condition) unconditionally
+    // requires `node:fs` at module-load time.
     capabilities: {
       identify: true,
       group: true,
@@ -79,6 +111,7 @@ export function createPostHogProvider(config: PostHogProviderConfig): AnalyticsP
       featureFlags: true,
       sessionReplay: false,
       heatmaps: false,
+      runtimes: ["node", "edge", "bun", "deno"],
     },
 
     track(event: CanonicalEvent) {

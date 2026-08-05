@@ -119,6 +119,18 @@ export function createSegmentFetchProvider(config: SegmentFetchProviderConfig): 
     // deferred (see this issue's Design decisions), so `batch` is omitted
     // rather than set `true` (matches `ProviderCapabilities.batch`'s own
     // documented "omitted = false" convention, `src/providers/index.ts`).
+    // `runtimes` (Phase 13 issue 003): verified by re-reading this entire
+    // file -- no `@segment/analytics-node` import anywhere in it (see the
+    // file-level comment above), the only network call is the runtime's
+    // native `fetch()` in `post()`, and identity/auth encoding uses `btoa`
+    // (a universal global, deliberately chosen over Node's `Buffer` -- see
+    // `encodeBasicAuth`'s own comment above), not any Node-specific global
+    // (`process`, `node:*`). So this adapter runs unmodified anywhere
+    // `fetch`/`btoa` are available: Node, browsers, edge (Cloudflare
+    // Workers/Vercel Edge -- see `ProviderCapabilities.runtimes`'s doc
+    // comment for why these share one category), Bun, and Deno -- same
+    // reasoning as `packages/provider-ga4`'s `createGA4Provider` and
+    // `packages/provider-posthog`'s `createPostHogFetchProvider`.
     capabilities: {
       identify: true,
       group: true,
@@ -130,6 +142,7 @@ export function createSegmentFetchProvider(config: SegmentFetchProviderConfig): 
       featureFlags: false,
       sessionReplay: false,
       heatmaps: false,
+      runtimes: ["node", "browser", "edge", "bun", "deno"],
     },
 
     async track(event) {

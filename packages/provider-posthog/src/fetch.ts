@@ -130,6 +130,16 @@ export function createPostHogFetchProvider(config: PostHogFetchProviderConfig): 
     // HTTP endpoint is implemented by this adapter (out of scope for issue
     // 001). `sessionReplay`/`heatmaps: false` -- both are `posthog-js`
     // (browser) capture-time features with no HTTP-capture-API equivalent.
+    // `runtimes` (Phase 13 issue 003): verified by re-reading this entire
+    // file -- no `posthog-node` import anywhere in it (see the file-level
+    // comment above), the only network call is the runtime's native
+    // `fetch()` in `post()`, and no Node-specific global (`process`,
+    // `Buffer`, `node:*`) is referenced anywhere in this file. So this
+    // adapter runs unmodified anywhere `fetch` is available: Node,
+    // browsers, edge (Cloudflare Workers/Vercel Edge -- see
+    // `ProviderCapabilities.runtimes`'s doc comment for why these share one
+    // category), Bun, and Deno -- same reasoning as
+    // `packages/provider-ga4`'s `createGA4Provider`.
     capabilities: {
       identify: true,
       group: true,
@@ -142,6 +152,7 @@ export function createPostHogFetchProvider(config: PostHogFetchProviderConfig): 
       sessionReplay: false,
       heatmaps: false,
       batch: true,
+      runtimes: ["node", "browser", "edge", "bun", "deno"],
     },
 
     async track(event: CanonicalEvent) {

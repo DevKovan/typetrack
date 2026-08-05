@@ -281,8 +281,15 @@ describe("createSegmentFetchProvider (unit)", () => {
       featureFlags: false,
       sessionReplay: false,
       heatmaps: false,
+      runtimes: ["node", "browser", "edge", "bun", "deno"],
     });
     expect("batch" in provider.capabilities).toBe(false);
+  });
+
+  it("declares runtimes: fetch-only, no vendor SDK import", () => {
+    const provider = createSegmentFetchProvider({ writeKey: "test" });
+
+    expect(provider.capabilities.runtimes).toEqual(["node", "browser", "edge", "bun", "deno"]);
   });
 
   it("flush() resolves without calling fetch", async () => {

@@ -283,7 +283,14 @@ describe("createPostHogFetchProvider (unit)", () => {
       sessionReplay: false,
       heatmaps: false,
       batch: true,
+      runtimes: ["node", "browser", "edge", "bun", "deno"],
     });
+  });
+
+  it("declares runtimes: fetch-only, no vendor SDK import", () => {
+    const provider = createPostHogFetchProvider({ apiKey: "test-key" });
+
+    expect(provider.capabilities.runtimes).toEqual(["node", "browser", "edge", "bun", "deno"]);
   });
 
   it("flush() resolves and makes zero fetch calls", async () => {

@@ -158,6 +158,17 @@ export function createGA4Provider(config: GA4ProviderConfig): AnalyticsProvider 
     // `page()` call issues its own immediate request (no batching); no
     // offline queue, feature flags, session replay, or heatmaps exist in
     // this HTTP-only adapter.
+    //
+    // `runtimes` (Phase 13 issue 003): verified by re-reading this entire
+    // file top to bottom -- the only network call this adapter makes is the
+    // runtime's native `fetch()` in `send()` above, and every other
+    // function in this file is pure JS (string/object manipulation,
+    // `console.warn`, `URL`) -- there is no `import` of any vendor SDK and
+    // no use of any Node-specific global (`process`, `Buffer`, `node:*`).
+    // So this adapter runs unmodified anywhere `fetch` and `URL` are
+    // available: Node, browsers, edge (Cloudflare Workers/Vercel Edge --
+    // see `ProviderCapabilities.runtimes`'s doc comment for why these share
+    // one category), Bun, and Deno.
     capabilities: {
       identify: true,
       group: false,
@@ -169,6 +180,7 @@ export function createGA4Provider(config: GA4ProviderConfig): AnalyticsProvider 
       featureFlags: false,
       sessionReplay: false,
       heatmaps: false,
+      runtimes: ["node", "browser", "edge", "bun", "deno"],
     },
 
     async track(event: CanonicalEvent) {
