@@ -14,7 +14,11 @@ Write both:
 - **Integration tests** — e.g. actual HTTP round-trip, actual Zod validation
   against a real schema.
 
-Both are required per issue, no exceptions. Run the test suite locally
-before returning.
+Both are required per issue, no exceptions. Before returning, run locally
+and fix everything each one flags: the test suite (`bun test`), `bun run
+lint`, `bun run typecheck`, and `bunx knip`. A `knip` finding (unused
+export, unused file, unused dependency) is a real defect in the diff, not
+noise to leave for `qa` to catch — remove/wire up whatever it flags
+yourself. Don't hand off work you already know `qa` will bounce back.
 
 Return a summary of files changed and why.
