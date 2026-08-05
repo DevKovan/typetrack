@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
+import { afterAll, afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
 import type { CanonicalEvent } from "typetrack";
 import { createPostHogFetchProvider } from "./fetch";
 
@@ -34,6 +34,16 @@ class FakePostHog {
   }
 }
 mock.module("posthog-node", () => ({ PostHog: FakePostHog }));
+
+// `mock.module()` mutates the already-loaded `posthog-node` module's
+// exports for the rest of the shared, single-process `bun test` run --
+// left unrestored, it would silently poison every later file's real
+// `createPostHogProvider` (e.g. `index.integration.test.ts`) with this
+// fake. `mock.restore()` undoes it once this file's tests finish.
+afterAll(() => {
+  mock.restore();
+});
+
 const { createPostHogProvider } = await import("./index");
 
 const originalFetch = globalThis.fetch;

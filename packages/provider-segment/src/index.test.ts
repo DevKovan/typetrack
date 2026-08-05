@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, mock, spyOn } from "bun:test";
+import { afterAll, beforeEach, describe, expect, it, mock, spyOn } from "bun:test";
 import type { CanonicalEvent } from "typetrack";
 
 // Unit tests -- no real network I/O. `@segment/analytics-node`'s `Analytics`
@@ -96,6 +96,17 @@ class FakeAnalytics {
 }
 
 mock.module("@segment/analytics-node", () => ({ Analytics: FakeAnalytics }));
+
+// `mock.module()` mutates the already-loaded `@segment/analytics-node`
+// module's exports for the rest of the shared, single-process `bun test`
+// run -- `./index.ts`'s `Analytics` import binding stays live, so leaving
+// this mock in place would silently poison every later file's real
+// `createSegmentProvider` (e.g. `index.integration.test.ts`) with this fake
+// instead. `afterAll`'s `mock.restore()` undoes it once this file's tests
+// finish, regardless of file execution order.
+afterAll(() => {
+  mock.restore();
+});
 
 const { createSegmentProvider } = await import("./index");
 

@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from "bun:test";
+import { afterAll, afterEach, beforeEach, describe, expect, it, mock, spyOn } from "bun:test";
 import type { CanonicalEvent } from "typetrack";
 import { createSegmentFetchProvider } from "./fetch";
 
@@ -364,6 +364,16 @@ describe("createSegmentFetchProvider vs createSegmentProvider (mapping parity)",
   }
 
   mock.module("@segment/analytics-node", () => ({ Analytics: FakeAnalytics }));
+
+  // `mock.module()` mutates the already-loaded `@segment/analytics-node`
+  // module's exports for the rest of the shared, single-process `bun test`
+  // run -- left unrestored, it would silently poison every later file's
+  // real `createSegmentProvider` (e.g. `index.integration.test.ts`) with
+  // this fake. `mock.restore()` undoes it once this describe block's tests
+  // finish.
+  afterAll(() => {
+    mock.restore();
+  });
 
   it("produces the same translated event name/properties as createSegmentProvider for equivalent config", async () => {
     const { createSegmentProvider } = await import("./index");

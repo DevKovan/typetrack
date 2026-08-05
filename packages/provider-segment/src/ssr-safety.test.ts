@@ -13,7 +13,7 @@
 // Neither adapter has any reason to touch a browser global at all (both are
 // server-side/HTTP-only) -- this file exists to lock that in as regression
 // coverage, not because either adapter was suspected of an SSR-unsafe path.
-import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
+import { afterAll, afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
 import type { CanonicalEvent } from "typetrack";
 
 interface TrackCall {
@@ -56,6 +56,16 @@ class FakeAnalytics {
 }
 
 mock.module("@segment/analytics-node", () => ({ Analytics: FakeAnalytics }));
+
+// `mock.module()` mutates the already-loaded `@segment/analytics-node`
+// module's exports for the rest of the shared, single-process `bun test`
+// run -- left unrestored, it would silently poison every later file's real
+// `createSegmentProvider` (e.g. `index.integration.test.ts`) with this
+// fake. `mock.restore()` undoes it once this file's tests finish.
+afterAll(() => {
+  mock.restore();
+});
+
 const { createSegmentProvider } = await import("./index");
 const { createSegmentFetchProvider } = await import("./fetch");
 
