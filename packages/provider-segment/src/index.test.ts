@@ -1,11 +1,18 @@
-import { afterAll, beforeEach, describe, expect, it, mock, spyOn } from "bun:test";
+import { beforeEach, describe, expect, it, mock, spyOn } from "bun:test";
 import type { CanonicalEvent } from "typetrack";
-import { Analytics as RealAnalytics } from "@segment/analytics-node";
+import { createSegmentProviderWithClient, type SegmentClientLike } from "./index";
 
-// Unit tests -- no real network I/O. `@segment/analytics-node`'s `Analytics`
-// export is replaced with an in-memory fake before `./index` is imported, so
-// `createSegmentProvider` constructs the fake instead of a real client. The
-// fake mirrors the real SDK's verified `_isClosed` gate (see
+// Unit tests -- no real network I/O, and no module mocking. `FakeAnalytics`
+// below implements `SegmentClientLike` directly and is passed to
+// `createSegmentProviderWithClient` -- this used to go through
+// `mock.module("@segment/analytics-node", ...)` + a plain
+// `createSegmentProvider()` call, but that turned out to leak the fake
+// across test files sharing Bun's single test process (confirmed
+// empirically). Dependency injection sidesteps the whole
+// module-cache-sharing problem instead of fighting it -- see
+// `createSegmentProviderWithClient`'s own doc comment in `./index.ts`.
+//
+// The fake mirrors the real SDK's verified `_isClosed` gate (see
 // `dist/esm/app/analytics-node.js`): once `closeAndFlush()` has been called,
 // further track/page/screen/group/alias calls are silently dropped instead
 // of throwing -- track()/page()/etc. are `void`, not promises, on the real
@@ -18,7 +25,7 @@ interface TrackCall {
   timestamp?: Date;
 }
 interface IdentifyCall {
-  userId: string;
+  userId?: string;
   anonymousId?: string;
   traits?: Record<string, unknown>;
 }
@@ -48,13 +55,8 @@ const aliasCalls: AliasCall[] = [];
 const closeAndFlush = mock(() => Promise.resolve());
 const flush = mock(() => Promise.resolve());
 
-class FakeAnalytics {
-  settings: unknown;
+class FakeAnalytics implements SegmentClientLike {
   closed = false;
-
-  constructor(settings: unknown) {
-    this.settings = settings;
-  }
 
   track(props: TrackCall) {
     if (this.closed) return;
@@ -96,24 +98,7 @@ class FakeAnalytics {
   }
 }
 
-mock.module("@segment/analytics-node", () => ({ Analytics: FakeAnalytics }));
-
-// `mock.module()` mutates the already-loaded `@segment/analytics-node`
-// module's exports for the rest of the shared, single-process `bun test`
-// run -- `./index.ts`'s `Analytics` import binding stays live, so leaving
-// this mock in place would silently poison every later file's real
-// `createSegmentProvider` (e.g. `index.integration.test.ts`) with this fake
-// instead. `mock.restore()` does *not* undo `mock.module()` (verified
-// empirically against Bun 1.3.14 -- it only restores plain `mock()`
-// spies), so `afterAll` instead re-mocks `@segment/analytics-node` back to
-// the real `Analytics` class (captured above, before this file's own mock
-// is ever applied), once this file's tests finish, regardless of file
-// execution order.
-afterAll(() => {
-  mock.module("@segment/analytics-node", () => ({ Analytics: RealAnalytics }));
-});
-
-const { createSegmentProvider } = await import("./index");
+const client = new FakeAnalytics();
 
 function makeEvent(overrides: Partial<CanonicalEvent> = {}): CanonicalEvent {
   return {
@@ -127,6 +112,7 @@ function makeEvent(overrides: Partial<CanonicalEvent> = {}): CanonicalEvent {
 }
 
 beforeEach(() => {
+  client.closed = false;
   trackCalls.length = 0;
   identifyCalls.length = 0;
   pageCalls.length = 0;
@@ -137,9 +123,9 @@ beforeEach(() => {
   flush.mockClear();
 });
 
-describe("createSegmentProvider", () => {
+describe("createSegmentProviderWithClient", () => {
   it("track() derives identity from event.anonymousId only, when event.userId is undefined", () => {
-    const provider = createSegmentProvider({ writeKey: "test" });
+    const provider = createSegmentProviderWithClient(client);
 
     provider.track(makeEvent({ anonymousId: "anon-1", userId: undefined }));
 
@@ -149,7 +135,7 @@ describe("createSegmentProvider", () => {
   });
 
   it("track() derives identity from both event.userId and event.anonymousId when userId is defined", () => {
-    const provider = createSegmentProvider({ writeKey: "test" });
+    const provider = createSegmentProviderWithClient(client);
 
     provider.track(makeEvent({ anonymousId: "anon-1", userId: "user_1" }));
 
@@ -158,7 +144,7 @@ describe("createSegmentProvider", () => {
   });
 
   it("two track() calls with different event.anonymousId values produce different identity objects (no caching)", () => {
-    const provider = createSegmentProvider({ writeKey: "test" });
+    const provider = createSegmentProviderWithClient(client);
 
     provider.track(makeEvent({ anonymousId: "anon-a" }));
     provider.track(makeEvent({ anonymousId: "anon-b" }));
@@ -168,11 +154,9 @@ describe("createSegmentProvider", () => {
   });
 
   it("track() passes event name/properties/timestamp through translation", () => {
-    const provider = createSegmentProvider({ writeKey: "test" });
+    const provider = createSegmentProviderWithClient(client);
 
-    provider.track(
-      makeEvent({ name: "Custom Event", properties: { plan: "pro" }, timestamp: 1234 }),
-    );
+    provider.track(makeEvent({ name: "Custom Event", properties: { plan: "pro" }, timestamp: 1234 }));
 
     expect(trackCalls).toHaveLength(1);
     const call = trackCalls[0]!;
@@ -182,7 +166,7 @@ describe("createSegmentProvider", () => {
   });
 
   it("translates a default-mapped canonical event name", () => {
-    const provider = createSegmentProvider({ writeKey: "test" });
+    const provider = createSegmentProviderWithClient(client);
 
     provider.track(makeEvent({ name: "Purchase Completed" }));
 
@@ -192,7 +176,7 @@ describe("createSegmentProvider", () => {
   it("passes an unmapped event name through unchanged and warns exactly once per name", () => {
     const warnSpy = spyOn(console, "warn").mockImplementation(() => {});
     try {
-      const provider = createSegmentProvider({ writeKey: "test" });
+      const provider = createSegmentProviderWithClient(client);
 
       provider.track(makeEvent({ name: "Totally Custom Event" }));
       provider.track(makeEvent({ name: "Totally Custom Event" }));
@@ -208,8 +192,7 @@ describe("createSegmentProvider", () => {
   });
 
   it("eventMap override wins over the default for a colliding key", () => {
-    const provider = createSegmentProvider({
-      writeKey: "test",
+    const provider = createSegmentProviderWithClient(client, {
       eventMap: { "Purchase Completed": "Custom Purchase" },
     });
 
@@ -219,8 +202,7 @@ describe("createSegmentProvider", () => {
   });
 
   it("eventMap override introduces a brand-new canonical event name", () => {
-    const provider = createSegmentProvider({
-      writeKey: "test",
+    const provider = createSegmentProviderWithClient(client, {
       eventMap: { "Newsletter Subscribed": "Newsletter Signup" },
     });
 
@@ -230,8 +212,7 @@ describe("createSegmentProvider", () => {
   });
 
   it("propertyMap: per-event override beats global, global is fallback, unmapped keys pass through", () => {
-    const provider = createSegmentProvider({
-      writeKey: "test",
+    const provider = createSegmentProviderWithClient(client, {
       propertyMap: {
         global: { orderId: "global_order_id", currency: "currency" },
         events: {
@@ -262,7 +243,7 @@ describe("createSegmentProvider", () => {
   });
 
   it("identify() forwards userId/anonymousId/traits to the client's identify(), storing no state", () => {
-    const provider = createSegmentProvider({ writeKey: "test" });
+    const provider = createSegmentProviderWithClient(client);
 
     provider.identify?.("user_42", { email: "a@example.com" }, "anon-42");
 
@@ -274,8 +255,7 @@ describe("createSegmentProvider", () => {
   });
 
   it("page() derives identity from the event and translates properties via the global map only", () => {
-    const provider = createSegmentProvider({
-      writeKey: "test",
+    const provider = createSegmentProviderWithClient(client, {
       propertyMap: { global: { referrer: "page_referrer" } },
     });
 
@@ -290,7 +270,7 @@ describe("createSegmentProvider", () => {
   });
 
   it("page() with the empty-string name sentinel omits name", () => {
-    const provider = createSegmentProvider({ writeKey: "test" });
+    const provider = createSegmentProviderWithClient(client);
 
     provider.page?.(makeEvent({ name: "" }));
 
@@ -298,7 +278,7 @@ describe("createSegmentProvider", () => {
   });
 
   it("screen() derives identity from the event and forwards to the client's screen()", () => {
-    const provider = createSegmentProvider({ writeKey: "test" });
+    const provider = createSegmentProviderWithClient(client);
 
     provider.screen?.(makeEvent({ name: "Onboarding", properties: { step: 1 }, userId: "user_9" }));
 
@@ -311,7 +291,7 @@ describe("createSegmentProvider", () => {
   });
 
   it("group() forwards to the client's group() with the correct identity shape", () => {
-    const provider = createSegmentProvider({ writeKey: "test" });
+    const provider = createSegmentProviderWithClient(client);
 
     provider.group?.("group_1", { plan: "enterprise" }, { userId: "user_1", anonymousId: "anon-1" });
 
@@ -324,7 +304,7 @@ describe("createSegmentProvider", () => {
   });
 
   it("group() omits userId when the identity has none", () => {
-    const provider = createSegmentProvider({ writeKey: "test" });
+    const provider = createSegmentProviderWithClient(client);
 
     provider.group?.("group_1", undefined, { anonymousId: "anon-1" });
 
@@ -333,7 +313,7 @@ describe("createSegmentProvider", () => {
   });
 
   it("alias() forwards userId/previousId to the client's alias()", () => {
-    const provider = createSegmentProvider({ writeKey: "test" });
+    const provider = createSegmentProviderWithClient(client);
 
     provider.alias?.("new_user", "old_user", "anon-1");
 
@@ -343,7 +323,7 @@ describe("createSegmentProvider", () => {
   });
 
   it("alias() falls back to anonymousId as previousId when previousUserId is undefined", () => {
-    const provider = createSegmentProvider({ writeKey: "test" });
+    const provider = createSegmentProviderWithClient(client);
 
     provider.alias?.("new_user", undefined, "anon-1");
 
@@ -352,7 +332,7 @@ describe("createSegmentProvider", () => {
   });
 
   it("capabilities matches the declared table exactly", () => {
-    const provider = createSegmentProvider({ writeKey: "test" });
+    const provider = createSegmentProviderWithClient(client);
 
     expect(provider.capabilities).toEqual({
       identify: true,
@@ -370,13 +350,13 @@ describe("createSegmentProvider", () => {
   });
 
   it("declares runtimes: node/bun/deno only, per @segment/analytics-node's lack of edge/browser export conditions", () => {
-    const provider = createSegmentProvider({ writeKey: "test" });
+    const provider = createSegmentProviderWithClient(client);
 
     expect(provider.capabilities.runtimes).toEqual(["node", "bun", "deno"]);
   });
 
   it("flush() calls the client's non-terminal flush(), never closeAndFlush()", async () => {
-    const provider = createSegmentProvider({ writeKey: "test" });
+    const provider = createSegmentProviderWithClient(client);
 
     await provider.flush?.();
 
@@ -385,7 +365,7 @@ describe("createSegmentProvider", () => {
   });
 
   it("the adapter remains usable for a subsequent track() call after flush() resolves (critical regression test)", async () => {
-    const provider = createSegmentProvider({ writeKey: "test" });
+    const provider = createSegmentProviderWithClient(client);
 
     provider.track(makeEvent({ name: "before flush" }));
     await provider.flush?.();
@@ -396,7 +376,7 @@ describe("createSegmentProvider", () => {
   });
 
   it("destroy() calls closeAndFlush(), and a subsequent track() call is silently dropped (verified _isClosed behavior)", async () => {
-    const provider = createSegmentProvider({ writeKey: "test" });
+    const provider = createSegmentProviderWithClient(client);
 
     await provider.destroy?.();
 

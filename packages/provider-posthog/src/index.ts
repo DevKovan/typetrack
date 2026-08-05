@@ -55,20 +55,35 @@ export interface PostHogProviderConfig {
   propertyMap?: PostHogPropertyMap;
 }
 
-// Synchronously constructs exactly one `posthog-node` client and returns an
-// `AnalyticsProvider` translating core's canonical event model onto
-// PostHog's `capture`/`identify`/`groupIdentify`/`alias` API.
-//
-// Identity design (see issue for full rationale): this adapter keeps no
-// identity state of its own. `distinctId` is derived per-call from
-// `event.userId ?? event.anonymousId` for every `track()`/`page()`/
-// `screen()` call, since core (issue 002) already stamps identity onto
-// every `CanonicalEvent`. There is no adapter-owned `distinctId` variable
-// and nothing is "promoted" on `identify()` -- that entire mechanism from
-// the pre-Phase-6 adapter is gone.
-export function createPostHogProvider(config: PostHogProviderConfig): AnalyticsProvider {
-  const { apiKey, eventMap: eventMapOverride, propertyMap: propertyMapOverride, ...options } = config;
-  const client = new PostHog(apiKey, options);
+// The exact subset of `posthog-node`'s `PostHog` instance surface this
+// adapter calls. Test-only seam: unit tests construct a plain object
+// implementing this interface directly (no vendor SDK involved at all) and
+// pass it to `createPostHogProviderWithClient` below, instead of using
+// `mock.module("posthog-node", ...)` -- module mocking that specifier
+// turned out to leak across test files sharing Bun's single test process
+// (confirmed empirically: even an `afterAll` that re-mocks the real class
+// back doesn't take effect before a later file's own top-level `import`
+// already resolved against the polluted module, since Bun evaluates every
+// test file's top-level code before any hook runs). Dependency injection
+// sidesteps the whole module-cache-sharing problem instead of fighting it.
+export interface PostHogClientLike {
+  capture(props: { distinctId: string; event: string; properties?: Record<string, unknown>; timestamp?: Date }): void;
+  identify(props: { distinctId: string; properties?: Record<string, unknown> }): void;
+  groupIdentify(props: { groupType: string; groupKey: string; properties?: Record<string, unknown> }): void;
+  alias(props: { distinctId: string; alias: string }): void;
+  flush(): Promise<void>;
+  shutdown(): Promise<void>;
+}
+
+// Builds the `AnalyticsProvider` translation layer against an
+// already-constructed client -- shared by `createPostHogProvider` (real
+// `posthog-node` client) and every unit test (a hand-written fake
+// implementing `PostHogClientLike`, no module mocking involved).
+export function createPostHogProviderWithClient(
+  client: PostHogClientLike,
+  config: Pick<PostHogProviderConfig, "eventMap" | "propertyMap"> = {},
+): AnalyticsProvider {
+  const { eventMap: eventMapOverride, propertyMap: propertyMapOverride } = config;
 
   const eventMap: Record<string, string> = { ...DEFAULT_EVENT_MAP, ...eventMapOverride };
   const propertyMap = mergePropertyMap(propertyMapOverride);
@@ -195,4 +210,21 @@ export function createPostHogProvider(config: PostHogProviderConfig): AnalyticsP
       await client.shutdown();
     },
   };
+}
+
+// Synchronously constructs exactly one real `posthog-node` client and
+// delegates to `createPostHogProviderWithClient` above. This is the
+// factory app code actually calls.
+//
+// Identity design (see issue for full rationale): this adapter keeps no
+// identity state of its own. `distinctId` is derived per-call from
+// `event.userId ?? event.anonymousId` for every `track()`/`page()`/
+// `screen()` call, since core (issue 002) already stamps identity onto
+// every `CanonicalEvent`. There is no adapter-owned `distinctId` variable
+// and nothing is "promoted" on `identify()` -- that entire mechanism from
+// the pre-Phase-6 adapter is gone.
+export function createPostHogProvider(config: PostHogProviderConfig): AnalyticsProvider {
+  const { apiKey, eventMap, propertyMap, ...options } = config;
+  const client = new PostHog(apiKey, options);
+  return createPostHogProviderWithClient(client, { eventMap, propertyMap });
 }

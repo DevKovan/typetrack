@@ -1,32 +1,34 @@
-import { afterAll, afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
 import type { CanonicalEvent } from "typetrack";
 import { createPostHogFetchProvider } from "./fetch";
-import { PostHog as RealPostHog } from "posthog-node";
+import { createPostHogProviderWithClient, type PostHogClientLike } from "./index";
 
 // Unit tests -- no real network I/O. `globalThis.fetch` is stubbed before
 // each test and restored afterward, mirroring the GA4 sibling's
 // (`packages/provider-ga4/src/index.test.ts`) unit test conventions.
 //
-// The shared-fixture parity suite at the bottom of this file also needs
-// `createPostHogProvider` (the SDK-based factory from `./index`), which
-// statically imports the real `posthog-node`. `posthog-node`'s export is
-// replaced with an in-memory fake *before* `./index` is ever imported here
-// (top-level, same pattern as `index.test.ts`), so importing `./index` in
-// this file never touches the real package either.
+// The shared-fixture parity suite at the bottom of this file also needs an
+// SDK-side provider to compare against. It uses
+// `createPostHogProviderWithClient` with a hand-written `FakePostHog`
+// (implementing `PostHogClientLike`) instead of `mock.module("posthog-node",
+// ...)` -- module mocking that specifier turned out to leak across test
+// files sharing Bun's single test process (confirmed empirically), so this
+// file never imports the real `posthog-node` package at all, and there is
+// nothing here that could pollute `index.integration.test.ts` or any other
+// file.
 interface SdkCaptureCall {
   distinctId: string;
   event: string;
   properties?: Record<string, unknown>;
 }
 const sdkCaptureCalls: SdkCaptureCall[] = [];
-class FakePostHog {
-  constructor(
-    public apiKey: string,
-    public options: unknown,
-  ) {}
+class FakePostHog implements PostHogClientLike {
   capture(props: SdkCaptureCall) {
     sdkCaptureCalls.push(props);
   }
+  identify() {}
+  groupIdentify() {}
+  alias() {}
   flush() {
     return Promise.resolve();
   }
@@ -34,20 +36,7 @@ class FakePostHog {
     return Promise.resolve();
   }
 }
-mock.module("posthog-node", () => ({ PostHog: FakePostHog }));
-
-// `mock.module()` mutates the already-loaded `posthog-node` module's
-// exports for the rest of the shared, single-process `bun test` run --
-// left unrestored, it would silently poison every later file's real
-// `createPostHogProvider` (e.g. `index.integration.test.ts`) with this
-// fake. `mock.restore()` does *not* undo `mock.module()` (verified
-// empirically against Bun 1.3.14) -- re-mock back to the real `PostHog`
-// (captured above, before this file's own mock is ever applied) instead.
-afterAll(() => {
-  mock.module("posthog-node", () => ({ PostHog: RealPostHog }));
-});
-
-const { createPostHogProvider } = await import("./index");
+const sdkClient = new FakePostHog();
 
 const originalFetch = globalThis.fetch;
 
@@ -359,19 +348,18 @@ describe("createPostHogFetchProvider (unit)", () => {
   });
 });
 
-describe("createPostHogFetchProvider vs createPostHogProvider (shared-fixture parity)", () => {
+describe("createPostHogFetchProvider vs createPostHogProviderWithClient (shared-fixture parity)", () => {
   // Compares translated event name/properties for track()/page() between
   // both factories for the same CanonicalEvent, minus transport-specific
-  // fields -- `createPostHogProvider` here is exercised against the
-  // module-scope `FakePostHog` fake declared at the top of this file, so
-  // this suite never actually imports the real `posthog-node` package.
+  // fields -- the SDK side is exercised against the module-scope
+  // `FakePostHog` fake declared at the top of this file, so this suite
+  // never actually imports the real `posthog-node` package.
   beforeEach(() => {
     sdkCaptureCalls.length = 0;
   });
 
-  it("track() produces the same event name/properties translation as createPostHogProvider for equivalent config", async () => {
+  it("track() produces the same event name/properties translation as createPostHogProviderWithClient for equivalent config", async () => {
     const config = {
-      apiKey: "test-key",
       eventMap: { "Purchase Completed": "order_completed" },
       propertyMap: { global: { total: "amount" } },
     };
@@ -381,10 +369,10 @@ describe("createPostHogFetchProvider vs createPostHogProvider (shared-fixture pa
       userId: "user_1",
     });
 
-    const sdkProvider = createPostHogProvider(config);
+    const sdkProvider = createPostHogProviderWithClient(sdkClient, config);
     sdkProvider.track(event);
 
-    const fetchProvider = createPostHogFetchProvider(config);
+    const fetchProvider = createPostHogFetchProvider({ apiKey: "test-key", ...config });
     await fetchProvider.track(event);
 
     expect(sdkCaptureCalls).toHaveLength(1);
@@ -395,14 +383,13 @@ describe("createPostHogFetchProvider vs createPostHogProvider (shared-fixture pa
     expect(fetchBody["distinct_id"]).toBe(sdkCaptureCalls[0]!.distinctId);
   });
 
-  it("page() produces the same $pageview event/properties translation as createPostHogProvider", async () => {
-    const config = { apiKey: "test-key" };
+  it("page() produces the same $pageview event/properties translation as createPostHogProviderWithClient", async () => {
     const event = makeEvent({ name: "Home", properties: { referrer: "google" } });
 
-    const sdkProvider = createPostHogProvider(config);
+    const sdkProvider = createPostHogProviderWithClient(sdkClient);
     sdkProvider.page?.(event);
 
-    const fetchProvider = createPostHogFetchProvider(config);
+    const fetchProvider = createPostHogFetchProvider({ apiKey: "test-key" });
     await fetchProvider.page?.(event);
 
     expect(sdkCaptureCalls).toHaveLength(1);
@@ -411,14 +398,13 @@ describe("createPostHogFetchProvider vs createPostHogProvider (shared-fixture pa
     expect(fetchBody["properties"]).toEqual(sdkCaptureCalls[0]!.properties!);
   });
 
-  it("screen() produces the same $screen event/properties translation as createPostHogProvider", async () => {
-    const config = { apiKey: "test-key" };
+  it("screen() produces the same $screen event/properties translation as createPostHogProviderWithClient", async () => {
     const event = makeEvent({ name: "Onboarding", properties: { step: 1 } });
 
-    const sdkProvider = createPostHogProvider(config);
+    const sdkProvider = createPostHogProviderWithClient(sdkClient);
     sdkProvider.screen?.(event);
 
-    const fetchProvider = createPostHogFetchProvider(config);
+    const fetchProvider = createPostHogFetchProvider({ apiKey: "test-key" });
     await fetchProvider.screen?.(event);
 
     expect(sdkCaptureCalls).toHaveLength(1);

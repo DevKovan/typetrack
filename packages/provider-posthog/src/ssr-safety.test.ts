@@ -15,27 +15,32 @@
 // explicitly excluded per `./index.ts`'s header comment) -- this file exists
 // to lock that in as regression coverage, not because either adapter was
 // suspected of an SSR-unsafe path.
-import { afterAll, afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
 import type { CanonicalEvent } from "typetrack";
-import { PostHog as RealPostHog } from "posthog-node";
+import { createPostHogProviderWithClient, type PostHogClientLike } from "./index";
+import { createPostHogFetchProvider } from "./fetch";
 
+// SDK side uses `createPostHogProviderWithClient` with a hand-written
+// `FakePostHog` (implementing `PostHogClientLike`) instead of
+// `mock.module("posthog-node", ...)` -- module mocking that specifier
+// turned out to leak across test files sharing Bun's single test process
+// (confirmed empirically), so this file never imports the real
+// `posthog-node` package at all.
 interface SdkCaptureCall {
   distinctId: string;
   event: string;
   properties?: Record<string, unknown>;
 }
 const sdkCaptureCalls: SdkCaptureCall[] = [];
-class FakePostHog {
-  constructor(
-    public apiKey: string,
-    public options: unknown,
-  ) {}
+class FakePostHog implements PostHogClientLike {
   capture(props: SdkCaptureCall) {
     sdkCaptureCalls.push(props);
   }
   identify(props: unknown) {
     sdkCaptureCalls.push(props as SdkCaptureCall);
   }
+  groupIdentify() {}
+  alias() {}
   flush() {
     return Promise.resolve();
   }
@@ -43,21 +48,7 @@ class FakePostHog {
     return Promise.resolve();
   }
 }
-mock.module("posthog-node", () => ({ PostHog: FakePostHog }));
-
-// `mock.module()` mutates the already-loaded `posthog-node` module's
-// exports for the rest of the shared, single-process `bun test` run --
-// left unrestored, it would silently poison every later file's real
-// `createPostHogProvider` (e.g. `index.integration.test.ts`) with this
-// fake. `mock.restore()` does *not* undo `mock.module()` (verified
-// empirically against Bun 1.3.14) -- re-mock back to the real `PostHog`
-// (captured above, before this file's own mock is ever applied) instead.
-afterAll(() => {
-  mock.module("posthog-node", () => ({ PostHog: RealPostHog }));
-});
-
-const { createPostHogProvider } = await import("./index");
-const { createPostHogFetchProvider } = await import("./fetch");
+const sdkClient = new FakePostHog();
 
 const BROWSER_GLOBAL_KEYS = ["window", "document", "navigator", "localStorage", "indexedDB", "location"] as const;
 
@@ -97,9 +88,9 @@ function makeEvent(overrides: Partial<CanonicalEvent> = {}): CanonicalEvent {
   };
 }
 
-describe("SSR safety: createPostHogProvider (SDK-based)", () => {
+describe("SSR safety: createPostHogProviderWithClient (SDK-based)", () => {
   it("track()/identify()/flush()/destroy() cycle: nothing throws with no browser globals present", async () => {
-    const provider = createPostHogProvider({ apiKey: "test-key" });
+    const provider = createPostHogProviderWithClient(sdkClient);
 
     expect(() => provider.track(makeEvent())).not.toThrow();
     expect(() => provider.identify?.("user-1", { plan: "pro" }, "anon-1")).not.toThrow();

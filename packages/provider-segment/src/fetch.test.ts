@@ -1,7 +1,7 @@
-import { afterAll, afterEach, beforeEach, describe, expect, it, mock, spyOn } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from "bun:test";
 import type { CanonicalEvent } from "typetrack";
 import { createSegmentFetchProvider } from "./fetch";
-import { Analytics as RealAnalytics } from "@segment/analytics-node";
+import { createSegmentProviderWithClient, type SegmentClientLike } from "./index";
 
 // Unit tests -- no real network I/O. `globalThis.fetch` is stubbed before
 // each test and restored afterward, same pattern as
@@ -332,11 +332,13 @@ describe("createSegmentFetchProvider (unit)", () => {
   });
 });
 
-describe("createSegmentFetchProvider vs createSegmentProvider (mapping parity)", () => {
-  // `createSegmentProvider` (SDK-based) requires `@segment/analytics-node`
-  // to be mocked before `./index` is imported -- an in-memory fake capturing
-  // the exact arguments passed to the vendor client's `track()`, mirroring
-  // `./index.test.ts`'s own fake.
+describe("createSegmentFetchProvider vs createSegmentProviderWithClient (mapping parity)", () => {
+  // The SDK side uses `createSegmentProviderWithClient` with a
+  // hand-written `FakeAnalytics` (implementing `SegmentClientLike`)
+  // instead of `mock.module("@segment/analytics-node", ...)` -- module
+  // mocking that specifier turned out to leak across test files sharing
+  // Bun's single test process (confirmed empirically), so this file never
+  // imports the real `@segment/analytics-node` package at all.
   interface TrackCall {
     userId?: string;
     anonymousId?: string;
@@ -347,7 +349,7 @@ describe("createSegmentFetchProvider vs createSegmentProvider (mapping parity)",
 
   const trackCalls: TrackCall[] = [];
 
-  class FakeAnalytics {
+  class FakeAnalytics implements SegmentClientLike {
     track(props: TrackCall) {
       trackCalls.push(props);
     }
@@ -364,25 +366,11 @@ describe("createSegmentFetchProvider vs createSegmentProvider (mapping parity)",
     }
   }
 
-  mock.module("@segment/analytics-node", () => ({ Analytics: FakeAnalytics }));
+  const sdkClient = new FakeAnalytics();
 
-  // `mock.module()` mutates the already-loaded `@segment/analytics-node`
-  // module's exports for the rest of the shared, single-process `bun test`
-  // run -- left unrestored, it would silently poison every later file's
-  // real `createSegmentProvider` (e.g. `index.integration.test.ts`) with
-  // this fake. `mock.restore()` does *not* undo `mock.module()` (verified
-  // empirically against Bun 1.3.14) -- re-mock back to the real
-  // `Analytics` class (captured above, before this describe block's mock
-  // is ever applied) instead.
-  afterAll(() => {
-    mock.module("@segment/analytics-node", () => ({ Analytics: RealAnalytics }));
-  });
-
-  it("produces the same translated event name/properties as createSegmentProvider for equivalent config", async () => {
-    const { createSegmentProvider } = await import("./index");
-
+  it("produces the same translated event name/properties as createSegmentProviderWithClient for equivalent config", async () => {
     trackCalls.length = 0;
-    const sdkProvider = createSegmentProvider({ writeKey: "test" });
+    const sdkProvider = createSegmentProviderWithClient(sdkClient);
     const fetchProvider = createSegmentFetchProvider({ writeKey: "test" });
 
     const event = makeEvent({

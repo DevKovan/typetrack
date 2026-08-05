@@ -1,21 +1,19 @@
-import { afterAll, beforeEach, describe, expect, it, mock } from "bun:test";
+import { beforeEach, describe, expect, it, mock } from "bun:test";
 import type { CanonicalEvent } from "typetrack";
-import { PostHog as RealPostHog } from "posthog-node";
+import { createPostHogProviderWithClient, type PostHogClientLike } from "./index";
 
-// Unit tests -- no real network I/O. `posthog-node`'s `PostHog` export is
-// replaced with an in-memory fake before `./index` is imported, so
-// `createPostHogProvider` constructs the fake instead of a real client.
-//
-// `mock.module()` mutates the exports of the already-loaded `posthog-node`
-// module for the rest of the (shared, single-process) `bun test` run --
-// `./index.ts`'s `PostHog` import binding stays live, so leaving this mock
-// in place would silently poison every later file's real
-// `createPostHogProvider` (e.g. `index.integration.test.ts`) with this fake
-// instead. `mock.restore()` does *not* undo `mock.module()` (verified
-// empirically against Bun 1.3.14 -- it only restores plain `mock()` spies),
-// so `afterAll` instead re-mocks `posthog-node` back to the real `PostHog`
-// class (captured above, before this file's own mock is ever applied),
-// once this file's tests finish, regardless of file execution order.
+// Unit tests -- no real network I/O, and no module mocking. `FakePostHog`
+// below implements `PostHogClientLike` directly and is passed to
+// `createPostHogProviderWithClient` -- this used to go through
+// `mock.module("posthog-node", ...)` + a plain `createPostHogProvider()`
+// call, but that turned out to leak the fake across test files sharing
+// Bun's single test process (confirmed empirically: even an `afterAll`
+// that re-mocks the real class back doesn't take effect before a later
+// file's own top-level `import` already resolved against the polluted
+// module, since Bun evaluates every test file's top-level code before any
+// hook runs). Dependency injection sidesteps the whole module-cache-sharing
+// problem instead of fighting it -- see `createPostHogProviderWithClient`'s
+// own doc comment in `./index.ts`.
 interface CaptureCall {
   distinctId: string;
   event: string;
@@ -50,15 +48,7 @@ const shutdown = mock(() => {
   return Promise.resolve();
 });
 
-class FakePostHog {
-  apiKey: string;
-  options: unknown;
-
-  constructor(apiKey: string, options: unknown) {
-    this.apiKey = apiKey;
-    this.options = options;
-  }
-
+class FakePostHog implements PostHogClientLike {
   capture(props: CaptureCall) {
     captureCalls.push(props);
   }
@@ -84,13 +74,7 @@ class FakePostHog {
   }
 }
 
-mock.module("posthog-node", () => ({ PostHog: FakePostHog }));
-
-afterAll(() => {
-  mock.module("posthog-node", () => ({ PostHog: RealPostHog }));
-});
-
-const { createPostHogProvider } = await import("./index");
+const client = new FakePostHog();
 
 function makeEvent(overrides: Partial<CanonicalEvent> = {}): CanonicalEvent {
   return {
@@ -113,9 +97,9 @@ beforeEach(() => {
   shutdown.mockClear();
 });
 
-describe("createPostHogProvider", () => {
+describe("createPostHogProviderWithClient", () => {
   it("track() uses event.userId as distinctId when set", () => {
-    const provider = createPostHogProvider({ apiKey: "test" });
+    const provider = createPostHogProviderWithClient(client);
 
     provider.track(makeEvent({ userId: "user_1", anonymousId: "anon-1" }));
 
@@ -124,7 +108,7 @@ describe("createPostHogProvider", () => {
   });
 
   it("track() falls back to event.anonymousId when userId is undefined, with no adapter-side caching across calls", () => {
-    const provider = createPostHogProvider({ apiKey: "test" });
+    const provider = createPostHogProviderWithClient(client);
 
     provider.track(makeEvent({ userId: undefined, anonymousId: "anon-a" }));
     provider.track(makeEvent({ userId: undefined, anonymousId: "anon-b" }));
@@ -139,7 +123,7 @@ describe("createPostHogProvider", () => {
     const originalWarn = console.warn;
     console.warn = warnSpy;
     try {
-      const provider = createPostHogProvider({ apiKey: "test" });
+      const provider = createPostHogProviderWithClient(client);
 
       provider.track(makeEvent({ name: "Custom Event" }));
       provider.track(makeEvent({ name: "Custom Event" }));
@@ -159,7 +143,7 @@ describe("createPostHogProvider", () => {
     const originalWarn = console.warn;
     console.warn = warnSpy;
     try {
-      const provider = createPostHogProvider({ apiKey: "test" });
+      const provider = createPostHogProviderWithClient(client);
       provider.track(makeEvent({ name: "Purchase Completed" }));
       expect(warnSpy).not.toHaveBeenCalled();
       expect(captureCalls[0]!.event).toBe("Purchase Completed");
@@ -169,8 +153,7 @@ describe("createPostHogProvider", () => {
   });
 
   it("eventMap config override wins over the default for a colliding key", () => {
-    const provider = createPostHogProvider({
-      apiKey: "test",
+    const provider = createPostHogProviderWithClient(client, {
       eventMap: { "Purchase Completed": "order_completed" },
     });
 
@@ -180,8 +163,7 @@ describe("createPostHogProvider", () => {
   });
 
   it("eventMap config override honors a brand-new custom key not in the default table", () => {
-    const provider = createPostHogProvider({
-      apiKey: "test",
+    const provider = createPostHogProviderWithClient(client, {
       eventMap: { "Widget Clicked": "widget_clicked" },
     });
 
@@ -191,8 +173,7 @@ describe("createPostHogProvider", () => {
   });
 
   it("propertyMap per-event override beats global, global is a fallback, unmapped keys pass through", () => {
-    const provider = createPostHogProvider({
-      apiKey: "test",
+    const provider = createPostHogProviderWithClient(client, {
       propertyMap: {
         global: { total: "amount_global", orderId: "order_id_global" },
         events: {
@@ -215,7 +196,7 @@ describe("createPostHogProvider", () => {
   });
 
   it("forwards identify() with the new 3-arg signature and distinctId/properties field names", () => {
-    const provider = createPostHogProvider({ apiKey: "test" });
+    const provider = createPostHogProviderWithClient(client);
 
     provider.identify?.("user_42", { email: "a@example.com" }, "anon-42");
 
@@ -227,7 +208,7 @@ describe("createPostHogProvider", () => {
   });
 
   it("group() calls client.groupIdentify() with a fixed groupType constant", () => {
-    const provider = createPostHogProvider({ apiKey: "test" });
+    const provider = createPostHogProviderWithClient(client);
 
     provider.group?.("acme", { plan: "pro" }, { anonymousId: "a1" });
 
@@ -240,7 +221,7 @@ describe("createPostHogProvider", () => {
   });
 
   it("alias() forwards to the client's alias method with the correct field names", () => {
-    const provider = createPostHogProvider({ apiKey: "test" });
+    const provider = createPostHogProviderWithClient(client);
 
     provider.alias?.("user_new", "user_old", "anon-1");
 
@@ -249,7 +230,7 @@ describe("createPostHogProvider", () => {
   });
 
   it("alias() falls back to anonymousId when previousUserId is undefined", () => {
-    const provider = createPostHogProvider({ apiKey: "test" });
+    const provider = createPostHogProviderWithClient(client);
 
     provider.alias?.("user_new", undefined, "anon-9");
 
@@ -257,7 +238,7 @@ describe("createPostHogProvider", () => {
   });
 
   it("screen() calls client.capture() with event $screen and folds a non-empty name into properties", () => {
-    const provider = createPostHogProvider({ apiKey: "test" });
+    const provider = createPostHogProviderWithClient(client);
 
     provider.screen?.(makeEvent({ name: "Onboarding", properties: { step: 1 } }));
 
@@ -267,7 +248,7 @@ describe("createPostHogProvider", () => {
   });
 
   it("screen() does not fold an empty-string name into properties", () => {
-    const provider = createPostHogProvider({ apiKey: "test" });
+    const provider = createPostHogProviderWithClient(client);
 
     provider.screen?.(makeEvent({ name: "", properties: { step: 1 } }));
 
@@ -275,7 +256,7 @@ describe("createPostHogProvider", () => {
   });
 
   it("page() calls client.capture() with event $pageview and folds a non-empty name into properties", () => {
-    const provider = createPostHogProvider({ apiKey: "test" });
+    const provider = createPostHogProviderWithClient(client);
 
     provider.page?.(makeEvent({ name: "Home", properties: { referrer: "google" } }));
 
@@ -285,7 +266,7 @@ describe("createPostHogProvider", () => {
   });
 
   it("capabilities matches the declared table exactly", () => {
-    const provider = createPostHogProvider({ apiKey: "test" });
+    const provider = createPostHogProviderWithClient(client);
 
     expect(provider.capabilities).toEqual({
       identify: true,
@@ -303,13 +284,13 @@ describe("createPostHogProvider", () => {
   });
 
   it("declares runtimes: node/edge/bun/deno per posthog-node's own edge export conditions, browser excluded", () => {
-    const provider = createPostHogProvider({ apiKey: "test" });
+    const provider = createPostHogProviderWithClient(client);
 
     expect(provider.capabilities.runtimes).toEqual(["node", "edge", "bun", "deno"]);
   });
 
   it("flush() calls client.flush() and never client.shutdown()", async () => {
-    const provider = createPostHogProvider({ apiKey: "test" });
+    const provider = createPostHogProviderWithClient(client);
 
     await provider.flush?.();
 
@@ -318,7 +299,7 @@ describe("createPostHogProvider", () => {
   });
 
   it("destroy() calls client.flush() then client.shutdown(), in that order", async () => {
-    const provider = createPostHogProvider({ apiKey: "test" });
+    const provider = createPostHogProviderWithClient(client);
 
     await provider.destroy?.();
 
@@ -328,7 +309,7 @@ describe("createPostHogProvider", () => {
   });
 
   it("reset() does not throw and does not call any client method", () => {
-    const provider = createPostHogProvider({ apiKey: "test" });
+    const provider = createPostHogProviderWithClient(client);
 
     expect(() => provider.reset?.()).not.toThrow();
 

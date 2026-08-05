@@ -13,10 +13,17 @@
 // Neither adapter has any reason to touch a browser global at all (both are
 // server-side/HTTP-only) -- this file exists to lock that in as regression
 // coverage, not because either adapter was suspected of an SSR-unsafe path.
-import { afterAll, afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
 import type { CanonicalEvent } from "typetrack";
-import { Analytics as RealAnalytics } from "@segment/analytics-node";
+import { createSegmentProviderWithClient, type SegmentClientLike } from "./index";
+import { createSegmentFetchProvider } from "./fetch";
 
+// SDK side uses `createSegmentProviderWithClient` with a hand-written
+// `FakeAnalytics` (implementing `SegmentClientLike`) instead of
+// `mock.module("@segment/analytics-node", ...)` -- module mocking that
+// specifier turned out to leak across test files sharing Bun's single test
+// process (confirmed empirically), so this file never imports the real
+// `@segment/analytics-node` package at all.
 interface TrackCall {
   userId?: string;
   anonymousId?: string;
@@ -25,7 +32,7 @@ interface TrackCall {
   timestamp?: Date;
 }
 interface IdentifyCall {
-  userId: string;
+  userId?: string;
   anonymousId?: string;
   traits?: Record<string, unknown>;
 }
@@ -35,9 +42,8 @@ const identifyCalls: IdentifyCall[] = [];
 const closeAndFlush = mock(() => Promise.resolve());
 const flush = mock(() => Promise.resolve());
 
-class FakeAnalytics {
+class FakeAnalytics implements SegmentClientLike {
   closed = false;
-  constructor(public settings: unknown) {}
 
   track(props: TrackCall) {
     if (this.closed) return;
@@ -47,6 +53,10 @@ class FakeAnalytics {
     if (this.closed) return;
     identifyCalls.push(props);
   }
+  page() {}
+  screen() {}
+  group() {}
+  alias() {}
   closeAndFlush() {
     this.closed = true;
     return closeAndFlush();
@@ -56,22 +66,7 @@ class FakeAnalytics {
   }
 }
 
-mock.module("@segment/analytics-node", () => ({ Analytics: FakeAnalytics }));
-
-// `mock.module()` mutates the already-loaded `@segment/analytics-node`
-// module's exports for the rest of the shared, single-process `bun test`
-// run -- left unrestored, it would silently poison every later file's real
-// `createSegmentProvider` (e.g. `index.integration.test.ts`) with this
-// fake. `mock.restore()` does *not* undo `mock.module()` (verified
-// empirically against Bun 1.3.14) -- re-mock back to the real `Analytics`
-// class (captured above, before this file's own mock is ever applied)
-// instead.
-afterAll(() => {
-  mock.module("@segment/analytics-node", () => ({ Analytics: RealAnalytics }));
-});
-
-const { createSegmentProvider } = await import("./index");
-const { createSegmentFetchProvider } = await import("./fetch");
+const sdkClient = new FakeAnalytics();
 
 const BROWSER_GLOBAL_KEYS = ["window", "document", "navigator", "localStorage", "indexedDB", "location"] as const;
 
@@ -112,9 +107,9 @@ function makeEvent(overrides: Partial<CanonicalEvent> = {}): CanonicalEvent {
   };
 }
 
-describe("SSR safety: createSegmentProvider (SDK-based)", () => {
+describe("SSR safety: createSegmentProviderWithClient (SDK-based)", () => {
   it("track()/identify()/flush()/destroy() cycle: nothing throws with no browser globals present", async () => {
-    const provider = createSegmentProvider({ writeKey: "test-key" });
+    const provider = createSegmentProviderWithClient(sdkClient);
 
     expect(() => provider.track(makeEvent())).not.toThrow();
     expect(() => provider.identify?.("user-1", { plan: "pro" }, "anon-1")).not.toThrow();

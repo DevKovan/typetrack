@@ -3,10 +3,12 @@ import type { CanonicalEvent } from "typetrack";
 import { createSegmentProvider } from "./index";
 import { Analytics } from "@segment/analytics-node";
 
-// Guard against cross-file `mock.module()` pollution (see the `afterAll`
-// restoration comments in `./index.test.ts`/`./fetch.test.ts`/
-// `./ssr-safety.test.ts`): if any of those files' fake ever leaks into this
-// real-network integration suite, fail loudly and specifically here instead
+// Regression guard: `./index.test.ts`/`./fetch.test.ts`/
+// `./ssr-safety.test.ts` no longer use
+// `mock.module("@segment/analytics-node", ...)` at all (see
+// `createSegmentProviderWithClient` in `./index.ts` for why -- it leaked
+// across test files sharing Bun's single test process), but if that
+// pattern is ever reintroduced, fail loudly and specifically here instead
 // of producing confusing "received length 0" assertion failures below.
 if (Analytics.name !== "Analytics") {
   throw new Error(
