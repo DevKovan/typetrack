@@ -15,7 +15,7 @@ export interface SegmentPropertyMapConfig {
 // https://segment.com/docs/connections/spec/ecommerce/v2/. Not an exhaustive
 // catalogue -- a reasonably useful, cited starting set (see issue's
 // Out-of-scope).
-export const DEFAULT_EVENT_MAP: Record<string, string> = {
+const DEFAULT_EVENT_MAP: Record<string, string> = {
   "User Signed Up": "Signed Up",
   "User Logged In": "Signed In",
   "Checkout Started": "Checkout Started",
@@ -29,7 +29,7 @@ export const DEFAULT_EVENT_MAP: Record<string, string> = {
 // applied regardless of event name. Per Segment's "Order Completed"
 // (`order_id`, `revenue`, `currency`) and "Product Viewed" (`product_id`,
 // `name`, `price`) fields, same spec URL as above.
-export const DEFAULT_PROPERTY_MAP = {
+const DEFAULT_PROPERTY_MAP = {
   events: {
     "Purchase Completed": { orderId: "order_id", total: "revenue" },
     "Product Viewed": { productId: "product_id", name: "name" },
