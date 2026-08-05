@@ -1,5 +1,6 @@
 import { Analytics } from "@segment/analytics-node";
 import type { AnalyticsProvider, CanonicalEvent } from "typetrack";
+import { createEventNameTranslator, createPropertyTranslator, mergeEventMap, mergePropertyMap } from "./mapping";
 
 // Config accepted by `createSegmentProvider`. A deliberate subset of
 // `@segment/analytics-node`'s `AnalyticsSettings` -- only the options this
@@ -13,41 +14,15 @@ export interface SegmentProviderConfig {
   path?: string;
   maxEventsInBatch?: number;
   flushInterval?: number;
-  // Overrides merged over `DEFAULT_EVENT_MAP`/`DEFAULT_PROPERTY_MAP` below
-  // (override wins on key collision; see `createSegmentProvider`'s merge
-  // logic for the exact algorithm).
+  // Overrides merged over `DEFAULT_EVENT_MAP`/`DEFAULT_PROPERTY_MAP`
+  // (`./mapping.ts`) (override wins on key collision; see
+  // `mergeEventMap`/`mergePropertyMap` for the exact algorithm).
   eventMap?: Record<string, string>;
   propertyMap?: {
     global?: Record<string, string>;
     events?: Record<string, Record<string, string>>;
   };
 }
-
-// Canonical event name -> Segment's recommended B2B SaaS / Ecommerce v2 spec
-// event name. Per https://segment.com/docs/connections/spec/b2b-saas/ and
-// https://segment.com/docs/connections/spec/ecommerce/v2/. Not an exhaustive
-// catalogue -- a reasonably useful, cited starting set (see issue's
-// Out-of-scope).
-const DEFAULT_EVENT_MAP: Record<string, string> = {
-  "User Signed Up": "Signed Up",
-  "User Logged In": "Signed In",
-  "Checkout Started": "Checkout Started",
-  "Purchase Completed": "Order Completed",
-  "Product Viewed": "Product Viewed",
-  "Search Performed": "Products Searched",
-};
-
-// Canonical property name -> Segment's Ecommerce v2 spec property name, keyed
-// per canonical event name (`events`) plus an optional `global` fallback
-// applied regardless of event name. Per Segment's "Order Completed"
-// (`order_id`, `revenue`, `currency`) and "Product Viewed" (`product_id`,
-// `name`, `price`) fields, same spec URL as above.
-const DEFAULT_PROPERTY_MAP = {
-  events: {
-    "Purchase Completed": { orderId: "order_id", total: "revenue" },
-    "Product Viewed": { productId: "product_id", name: "name" },
-  },
-} satisfies { global?: Record<string, string>; events?: Record<string, Record<string, string>> };
 
 type Identity = { userId: string; anonymousId: string } | { anonymousId: string };
 
@@ -89,55 +64,10 @@ export function createSegmentProvider(config: SegmentProviderConfig): AnalyticsP
   const { eventMap: eventMapOverride, propertyMap: propertyMapOverride, ...clientSettings } = config;
   const client = new Analytics(clientSettings);
 
-  const eventMap: Record<string, string> = { ...DEFAULT_EVENT_MAP, ...eventMapOverride };
-
-  const mergedEventsPropertyMap: Record<string, Record<string, string>> = {};
-  for (const key of new Set([
-    ...Object.keys(DEFAULT_PROPERTY_MAP.events),
-    ...Object.keys(propertyMapOverride?.events ?? {}),
-  ])) {
-    mergedEventsPropertyMap[key] = {
-      ...DEFAULT_PROPERTY_MAP.events[key as keyof typeof DEFAULT_PROPERTY_MAP.events],
-      ...propertyMapOverride?.events?.[key],
-    };
-  }
-  const propertyMap: { global?: Record<string, string>; events: Record<string, Record<string, string>> } = {
-    global: { ...propertyMapOverride?.global },
-    events: mergedEventsPropertyMap,
-  };
-
-  // Backs the warn-once-per-unmapped-canonical-event-name policy below.
-  const warnedEventNames = new Set<string>();
-
-  function translateEventName(name: string): string {
-    const mapped = eventMap[name];
-    if (mapped !== undefined) return mapped;
-    if (!warnedEventNames.has(name)) {
-      warnedEventNames.add(name);
-      console.warn(
-        `@typetrack/provider-segment: no eventMap entry for canonical event name "${name}" -- passing it through unchanged.`,
-      );
-    }
-    return name;
-  }
-
-  // `eventName` is provided for `track()` (property translation is looked up
-  // per-event, then falls back to the global map); omitted for `page()`/
-  // `screen()`, which use the global map only -- neither goes through
-  // `eventMap`, so there is no "current event name" to key a per-event
-  // property lookup on (same reasoning as the GA4 adapter's `page()`).
-  function translateProperties(
-    properties: Record<string, unknown>,
-    eventName?: string,
-  ): Record<string, unknown> {
-    const result: Record<string, unknown> = {};
-    for (const [key, value] of Object.entries(properties)) {
-      const perEvent = eventName === undefined ? undefined : propertyMap.events[eventName]?.[key];
-      const mappedKey = perEvent ?? propertyMap.global?.[key] ?? key;
-      result[mappedKey] = value;
-    }
-    return result;
-  }
+  const eventMap = mergeEventMap(eventMapOverride);
+  const propertyMap = mergePropertyMap(propertyMapOverride);
+  const translateEventName = createEventNameTranslator(eventMap);
+  const translateProperties = createPropertyTranslator(propertyMap);
 
   return {
     name: "segment",
@@ -226,3 +156,8 @@ export function createSegmentProvider(config: SegmentProviderConfig): AnalyticsP
     },
   };
 }
+
+// Re-exported alongside `createSegmentProvider`/`SegmentProviderConfig` above
+// -- the zero-vendor-dependency, `fetch()`-based sibling factory (issue 002).
+export { createSegmentFetchProvider } from "./fetch";
+export type { SegmentFetchProviderConfig } from "./fetch";
