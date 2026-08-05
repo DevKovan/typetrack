@@ -1,0 +1,43 @@
+{
+  "name": "@typetrack/astro",
+  "version": "0.0.0",
+  "description": "Astro integration (astro:config:setup + injectScript automatic pageview tracking) for typetrack.",
+  "license": "MIT",
+  "type": "module",
+  "private": false,
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "lint": "oxlint",
+    "typecheck": "tsgo --noEmit",
+    "typecheck:tsc": "tsc --noEmit",
+    "test": "bun test"
+  },
+  "peerDependencies": {
+    "astro": "^6.0.0 || ^7.0.0"
+  },
+  "dependencies": {
+    "typetrack": "file:../.."
+  },
+  "devDependencies": {
+    "@happy-dom/global-registrator": "20.11.1",
+    "@typescript/native-preview": "7.0.0-dev.20260707.2",
+    "astro": "7.1.6",
+    "knip": "6.31.0",
+    "oxlint": "1.76.0",
+    "tsup": "8.5.1",
+    "typescript": "6.0.3"
+  }
+}

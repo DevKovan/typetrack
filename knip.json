@@ -18,6 +18,27 @@
       "entry": ["src/index.ts", "src/devServer/index.ts", "src/cli/index.ts"],
       "project": ["src/**/*.ts"]
     },
-    "packages/*": {}
+    "packages/*": {},
+    "packages/astro": {
+      // `packages/astro/src/buildPageLoadScript.ts`'s injected script
+      // contains a literal `import { dispatchPageView } from "typetrack";`
+      // line -- but that line lives inside a JS *string* (the content
+      // `injectScript()` hands to Astro's own Vite pipeline at real build
+      // time, resolved only once a real Astro app's browser bundle
+      // executes it), not a real TS `import` statement anywhere in this
+      // package's own source. Knip's static analysis, correctly, sees no
+      // real import of `typetrack` anywhere in `packages/astro/src` and
+      // reports the package.json dependency as unused -- a false positive
+      // for this package's own genuinely-virtual, string-templated import
+      // (mirrors this repo's own pre-existing, documented
+      // `ignoreUnresolved` entry above for `@typetrack/nuxt`'s equivalent
+      // build-time-only specifier, just the inverse direction: an
+      // over-eager "unused dependency" finding here, instead of an
+      // over-eager "unresolved import" finding there). The dependency
+      // itself is required at real Astro build/runtime time (see
+      // `package.json`'s own `dependencies.typetrack` and this issue's
+      // acceptance criteria), not actually unused.
+      "ignoreDependencies": ["typetrack"]
+    }
   }
 }
