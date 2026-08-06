@@ -251,6 +251,13 @@
         "nuxt": "^4.0.0",
       },
     },
+    "packages/provider-contract-kit": {
+      "name": "@typetrack/provider-contract-kit",
+      "version": "0.0.0",
+      "dependencies": {
+        "typetrack": "file:../..",
+      },
+    },
     "packages/provider-ga4": {
       "name": "@typetrack/provider-ga4",
       "version": "0.0.0",
@@ -1056,6 +1063,8 @@
     "@typetrack/next": ["@typetrack/next@workspace:packages/next"],
 
     "@typetrack/nuxt": ["@typetrack/nuxt@workspace:packages/nuxt"],
+
+    "@typetrack/provider-contract-kit": ["@typetrack/provider-contract-kit@workspace:packages/provider-contract-kit"],
 
     "@typetrack/provider-ga4": ["@typetrack/provider-ga4@workspace:packages/provider-ga4"],
 
@@ -2343,6 +2352,8 @@
 
     "@testing-library/jest-dom/dom-accessibility-api": ["dom-accessibility-api@0.6.3", "", {}, "sha512-7ZgogeTnjuHbo+ct10G9Ffp0mif17idi0IyWNVA/wcwcm7NPOD/WEHVP3n7n3MhXqxoIYm8d6MuZohYWIZ4T3w=="],
 
+    "@typetrack/provider-contract-kit/typetrack": ["typetrack@root:", {}],
+
     "@vercel/nft/glob": ["glob@13.0.6", "", { "dependencies": { "minimatch": "^10.2.2", "minipass": "^7.1.3", "path-scurry": "^2.0.2" } }, "sha512-Wjlyrolmm8uDpm/ogGyXZXb1Z+Ca2B8NbJwqBVg0axK9GbBeoS7yGV6vjXnYdGm6X53iehEuxxbyiKp8QmN4Vw=="],
 
     "@vue/compiler-sfc/magic-string": ["magic-string@0.30.21", "", { "dependencies": { "@jridgewell/sourcemap-codec": "^1.5.5" } }, "sha512-vd2F4YUyEXKGcLHoq+TEyCjxueSeHnFxyyjNp80yg0XV4vUhnDer/lvvlqM/arB5bXQN5K2/3oinyCRyx8T2CQ=="],
@@ -2384,12 +2395,6 @@
     "dom-serializer/entities": ["entities@4.5.0", "", {}, "sha512-V0hjH4dGPh9Ao5p0MoRY6BVqtwCjhz6vI5LT8AJ55H+4g9/4vbHx1I54fS0XuclLhDHArPQCiMjDxjaL8fPxhw=="],
 
     "editorconfig/commander": ["commander@10.0.1", "", {}, "sha512-y4Mg2tXshplEbSGzx7amzPwKKOCGuoSRP/CjEdwwk0FOGlUbq6lKuoyDZTNZkmxHdJtp54hdfY/JUrdL7Xfdug=="],
-
-    "example-validation-deprecated-event-rename/typetrack": ["typetrack@root:", {}],
-
-    "example-validation-production-stripping/typetrack": ["typetrack@root:", {}],
-
-    "example-validation-schema-versioning/typetrack": ["typetrack@root:", {}],
 
     "fast-npm-meta/cac": ["cac@7.0.0", "", {}, "sha512-tixWYgm5ZoOD+3g6UTea91eow5z6AAHaho3g0V9CNSNb45gM8SmflpAc+GRd1InC4AqN/07Unrgp56Y94N9hJQ=="],
 
