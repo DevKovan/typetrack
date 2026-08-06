@@ -53,6 +53,11 @@ bun test          # run the full test suite across the monorepo
 monorepo — there is no need to `cd` into individual packages or run builds
 in any particular manual order yourself.
 
+`bun run size` checks gzip bundle size of the tracked `dist/` artifacts
+(root `.size-limit.json`) against fixed limits, via `size-limit`/
+`@size-limit/file`. It requires `bun run build:all` to have already run —
+it checks already-built files, it does not build them itself.
+
 ## Status
 
 Early scaffold — see `plan/` for the phased build-out.

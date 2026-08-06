@@ -1,0 +1,62 @@
+[
+  {
+    "name": "core (ESM) -- dist/index.js",
+    "path": "dist/index.js",
+    "gzip": true,
+    "limit": "18 KB"
+  },
+  {
+    "name": "core (IIFE/CDN global) -- dist/index.global.js",
+    "path": "dist/index.global.js",
+    "gzip": true,
+    "limit": "12.5 KB"
+  },
+  {
+    "name": "@typetrack/react -- dist/index.js",
+    "path": "packages/react/dist/index.js",
+    "gzip": true,
+    "limit": "480 B"
+  },
+  {
+    "name": "@typetrack/next -- dist/index.js",
+    "path": "packages/next/dist/index.js",
+    "gzip": true,
+    "limit": "650 B"
+  },
+  {
+    "name": "@typetrack/vue -- dist/index.js",
+    "path": "packages/vue/dist/index.js",
+    "gzip": true,
+    "limit": "480 B"
+  },
+  {
+    "name": "@typetrack/nuxt -- dist/index.js",
+    "path": "packages/nuxt/dist/index.js",
+    "gzip": true,
+    "limit": "950 B"
+  },
+  {
+    "name": "@typetrack/svelte -- dist/index.js",
+    "path": "packages/svelte/dist/index.js",
+    "gzip": true,
+    "limit": "650 B"
+  },
+  {
+    "name": "@typetrack/solid -- dist/index.js",
+    "path": "packages/solid/dist/index.js",
+    "gzip": true,
+    "limit": "440 B"
+  },
+  {
+    "name": "@typetrack/astro -- dist/index.js",
+    "path": "packages/astro/dist/index.js",
+    "gzip": true,
+    "limit": "800 B"
+  },
+  {
+    "name": "@typetrack/remix -- dist/index.js",
+    "path": "packages/remix/dist/index.js",
+    "gzip": true,
+    "limit": "550 B"
+  }
+]
