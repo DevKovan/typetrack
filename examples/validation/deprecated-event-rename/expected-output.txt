@@ -1,0 +1,35 @@
+This is the literal console output produced by `bun run index.ts` (stdout and
+stderr combined -- `console.warn` writes to stderr, everything else to
+stdout). Nothing in this example depends on any random value, so every line
+below is exactly reproducible on every run.
+
+Old call site (unmodified): analytics.track("checkout_started", { cartValue })
+deprecatedEvents config: {"checkout_started":{"replacement":"Checkout Started","sunsetDate":"2027-01-01"}}
+
+Migration status for "checkout_started": {"eventName":"checkout_started","isDeprecated":true,"firesAs":"Checkout Started"}
+
+Calling the old call site 3 times, through the same Analytics instance...
+typetrack: event "checkout_started" is deprecated -- use "Checkout Started" instead. Planned removal: 2027-01-01.
+
+console.warn fired 1 time(s) across 3 calls (expected 1 -- warn-once-per-event-name)
+Provider received 3 event(s):
+  checkout-warehouse received track("Checkout Started") {"cartValue":42}
+  checkout-warehouse received track("Checkout Started") {"cartValue":89}
+  checkout-warehouse received track("Checkout Started") {"cartValue":15}
+
+Notes on what's happening above:
+- The old call site (`analytics.track("checkout_started", { cartValue })`)
+  is never edited -- it's exactly what an app author would have written
+  before the tracking-plan rename, and it still compiles and runs unmodified.
+- The deprecation warning line (`typetrack: event "checkout_started" is
+  deprecated -- use "Checkout Started" instead. Planned removal:
+  2027-01-01.`) prints exactly ONCE, even though the old call site is
+  invoked 3 times -- typetrack's warn-once-per-event-name behavior, keyed
+  per `Analytics` instance for that instance's whole lifetime.
+- Every one of the 3 events the stub provider receives is under the
+  RESOLVED name, `"Checkout Started"` -- never the original
+  `"checkout_started"` -- because a `deprecatedEvents` entry with a
+  `replacement` auto-redirects every downstream use (schema lookup,
+  `CanonicalEvent.name`, provider dispatch) to the new name. This is what
+  makes the whole migration a one-file `deprecatedEvents` config change,
+  not an application-code sweep across every call site.

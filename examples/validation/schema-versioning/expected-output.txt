@@ -1,0 +1,50 @@
+This is the literal console output produced by `bun run index.ts` (stdout and
+stderr combined -- `console.warn` writes to stderr, everything else to
+stdout). Nothing in this example depends on any random value, so every line
+below is exactly reproducible on every run.
+
+=== Section 1: current version (schemaVersion "2026.1") ===
+  classifyPurchasePayload(originalShapePayload): valid-without-currency
+  still validates against the schema exactly as originally shipped, too: true
+  tracked "Purchase Completed" with {"orderId":"ord_1","total":49.99}
+  metadata stamped on the delivered event: {"schemaVersion":"2026.1"}
+
+=== Section 2: additive change (still "2026.1" -- no version bump) ===
+  classifyPurchasePayload(additiveShapePayload): valid-with-currency
+  tracked "Purchase Completed" with {"orderId":"ord_2","total":79.5,"currency":"USD"}
+  same schema, same schemaVersion ("2026.1") -- both the original shape and the additive shape validated against the SAME schema, with zero call-site changes for pre-existing callers.
+  provider received 2 event(s) total, both under schemaVersion "2026.1"
+
+=== Section 3: a genuine breaking change, done correctly (V2, schemaVersion "2027.1") ===
+typetrack: event "Purchase Completed" is deprecated -- use "Purchase Completed V2" instead. Planned removal: 2027-06-01. total (dollars) was replaced by amountCents (integer cents) -- update call sites to the new payload shape.
+  old-shaped payload via the old event name "Purchase Completed" -> threw EventValidationError (name redirected to "Purchase Completed V2", but the payload shape was never updated): Validation failed for event "Purchase Completed V2": [
+  {
+    "expected": "number",
+    "code": "invalid_type",
+    "path": [
+      "amountCents"
+    ],
+    "message": "Invalid input: expected number, received undefined"
+  }
+]
+  updated call site tracked "Purchase Completed V2" with {"orderId":"ord_3","amountCents":9900,"currency":"USD"} -> validated
+  metadata stamped on the delivered event: {"schemaVersion":"2027.1"}
+  provider received 1 event(s) total (the failed validation above never reached the provider)
+
+Notes on what's happening above:
+- Section 1-2 both track through the SAME `createAnalytics()` instance,
+  built with the SAME schema (`purchaseCompletedSchemaCurrent`) and the SAME
+  `schemaVersion` ("2026.1"). The original shape (no `currency`) and the
+  additive shape (with `currency`) both validate successfully -- proving an
+  additive field addition needs no version bump and no call-site changes at
+  all for pre-existing callers.
+- Section 3 constructs a SEPARATE instance, with a genuinely new event name
+  ("Purchase Completed V2"), a new schema (`amountCents` instead of `total`),
+  a `schemaVersion` bump to "2027.1", and a `deprecatedEvents` redirect from
+  the old name. Calling the OLD event name with the OLD payload shape still
+  redirects the NAME (visible in the warning line and in the thrown error's
+  `.event`, `"Purchase Completed V2"`) -- but the payload shape was never
+  updated, so validation still fails. This is the key difference from
+  `../deprecated-event-rename`'s pure name-only migration: a field-level
+  breaking change genuinely requires updating the call site's payload, even
+  though the event name itself redirects for free.

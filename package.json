@@ -10,6 +10,7 @@
     "examples/core/*",
     "examples/providers/*",
     "examples/middleware/*",
+    "examples/validation/*",
     "examples/plugins/*",
     "examples/recipes/*",
     "examples/advanced/*",

@@ -1,0 +1,72 @@
+This is the literal console output produced by one run of `bun run index.ts`.
+Nothing in this example depends on any random value or on how the example
+happens to be invoked, so every line below is exactly reproducible on every
+run, AS LONG AS `NODE_ENV` is not set to `"production"` in your shell (the
+default when it's unset, which is what this capture assumes -- if you export
+`NODE_ENV=production` before running, `IS_PRODUCTION` and Instance C's
+behavior below will flip, per the "Explanation" section of README.md).
+
+IS_PRODUCTION (process.env.NODE_ENV === "production"): false
+Malformed payload: {"orderId":42,"amount":"nine hundred"}
+
+=== Instance A: validate: true (the default -- runtime check stays on) ===
+  threw EventValidationError: Validation failed for event "Order Placed": [
+  {
+    "expected": "string",
+    "code": "invalid_type",
+    "path": [
+      "orderId"
+    ],
+    "message": "Invalid input: expected string, received number"
+  },
+  {
+    "expected": "number",
+    "code": "invalid_type",
+    "path": [
+      "amount"
+    ],
+    "message": "Invalid input: expected number, received string"
+  }
+]
+  provider call count: 0 (expected 0 -- the provider is never reached on a validation failure)
+
+=== Instance B: validate: false (the runtime check is skipped) ===
+  no error thrown -- the malformed payload was forwarded to the provider exactly as given
+  provider call count: 1 (expected 1)
+  provider received: {"orderId":42,"amount":"nine hundred"}
+
+=== Instance C: createGuardedAnalytics() -- the real bundle-stripping recipe, IS_PRODUCTION=false ===
+  IS_PRODUCTION is false -- schemas/validate are both live, malformed payload rejected: Validation failed for event "Order Placed": [
+  {
+    "expected": "string",
+    "code": "invalid_type",
+    "path": [
+      "orderId"
+    ],
+    "message": "Invalid input: expected string, received number"
+  },
+  {
+    "expected": "number",
+    "code": "invalid_type",
+    "path": [
+      "amount"
+    ],
+    "message": "Invalid input: expected number, received string"
+  }
+]
+
+NOTE: validate:false (Instance B) skips only the RUNTIME check -- it does not, by itself, shrink a production bundle. Instance C's createGuardedAnalytics() additionally guards the `schemas` reference itself behind the same IS_PRODUCTION check -- see README.md's Production notes for why that second guard is required for real bundle-size stripping, and why that's a documented, accepted industry limitation, not a typetrack gap.
+
+Notes on what's happening above:
+- Instance A and Instance C behave identically here, because this run's
+  IS_PRODUCTION is false (its underlying `resolveValidationConfig(false)`
+  call resolves to `{ schemas: eventSchemas, validate: true }`, the same
+  configuration Instance A is built with directly).
+- Only Instance B demonstrates `validate: false` skipping the runtime check
+  -- the malformed payload sails straight through to the stub provider.
+- A real production build with `NODE_ENV=production` would make Instance C
+  behave like Instance B (schemas/validate both stripped) -- but Instance B
+  ALONE is not the production recipe: it never guards the `schemas`
+  reference, so `eventSchemas` (and Zod) still get bundled either way. Only
+  Instance C's pattern actually gives a real bundler's dead-code elimination
+  something to remove.
