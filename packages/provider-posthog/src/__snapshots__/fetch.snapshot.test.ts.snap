@@ -1,0 +1,15 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`createPostHogFetchProvider (snapshot) track()'s /capture/ request body matches the locked-down wire shape 1`] = `
+{
+  "api_key": "test-key",
+  "distinct_id": "user_1",
+  "event": "Purchase Completed",
+  "properties": {
+    "currency": "USD",
+    "orderId": "order_1",
+    "total": 99.99,
+  },
+  "timestamp": "2023-11-14T22:13:20.000Z",
+}
+`;

@@ -1,0 +1,15 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`createSegmentProviderWithClient (snapshot) track()'s client.track() call arguments match the locked-down wire shape 1`] = `
+{
+  "anonymousId": "anon-1",
+  "event": "Order Completed",
+  "properties": {
+    "currency": "USD",
+    "order_id": "order_1",
+    "revenue": 99.99,
+  },
+  "timestamp": 2023-11-14T22:13:20.000Z,
+  "userId": "user_1",
+}
+`;

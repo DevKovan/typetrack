@@ -1,0 +1,63 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`GET /schema (snapshot) returns the locked-down z.toJSONSchema() shape for a small, representative multi-event schemas map 1`] = `
+{
+  "events": {
+    "page_viewed": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "type": "string",
+        },
+        "referrer": {
+          "type": "string",
+        },
+      },
+      "required": [
+        "path",
+      ],
+      "type": "object",
+    },
+    "purchase_completed": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "currency": {
+          "default": "USD",
+          "type": "string",
+        },
+        "orderId": {
+          "type": "string",
+        },
+        "total": {
+          "type": "number",
+        },
+      },
+      "required": [
+        "orderId",
+        "total",
+        "currency",
+      ],
+      "type": "object",
+    },
+    "signup_completed": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "plan": {
+          "enum": [
+            "free",
+            "pro",
+          ],
+          "type": "string",
+        },
+      },
+      "required": [
+        "plan",
+      ],
+      "type": "object",
+    },
+  },
+}
+`;

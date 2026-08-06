@@ -1,0 +1,14 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`createPostHogProviderWithClient (snapshot) track()'s client.capture() call arguments match the locked-down wire shape 1`] = `
+{
+  "distinctId": "user_1",
+  "event": "Purchase Completed",
+  "properties": {
+    "currency": "USD",
+    "orderId": "order_1",
+    "total": 99.99,
+  },
+  "timestamp": 2023-11-14T22:13:20.000Z,
+}
+`;
