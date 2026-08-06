@@ -44,6 +44,23 @@ jobs:
         # this internally (`build && bun install && build react && build
         # next`), so this CI step only needs to invoke it once.
         run: bun run build:all
+      - name: Bundle size
+        # size-limit's @size-limit/file plugin (root `.size-limit.json`)
+        # checks already-built `dist/` file sizes directly -- no re-bundling
+        # of its own -- so it only needs the "Build" step above to have run,
+        # and has no dependency on Lint/Typecheck/Test below. Placed here,
+        # immediately after Build, rather than at the end of the job.
+        run: bun run size
+      - name: e2e
+        # `e2e/`'s two Playwright specs need `dist/index.global.js` (the
+        # IIFE global bundle, loaded via a real `<script>` tag) and the
+        # `flushOnUnload` `pagehide`/`sendBeacon` behavior, both of which
+        # only require root `typetrack`'s `dist/` output -- already produced
+        # by the "Build" step's `bun run build:all` (root `tsup` build runs
+        # first inside that script, before any `packages/*` sub-build).
+        run: |
+          bunx playwright install --with-deps chromium
+          cd e2e && bun run test
       - name: Lint
         run: bun run lint
       - name: Typecheck

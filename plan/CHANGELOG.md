@@ -324,3 +324,29 @@ are the record, this is just a trail of what happened when.
   deprecated-event-rename,schema-versioning}`, all genuinely tested in
   this repo. Per policy, this phase's issue files stay in
   `plan/phase-15-validation-hardening/` permanently.
+- Phase 16 (testing infrastructure): `packages/provider-contract-kit`
+  (`runProviderContractTests(harness)`, a test-file-supplied harness, not a
+  raw config object) consolidates 13 near-duplicate capability/lifecycle
+  assertions independently reworded across `provider-ga4`/`provider-posthog`/
+  `provider-segment`'s own test files into one shared suite, wired
+  identically into all five factories (`createGA4Provider`,
+  `createPostHogProvider`/`createPostHogFetchProvider`,
+  `createSegmentProvider`/`createSegmentFetchProvider`). Added `bun:test`
+  native snapshot tests (`toMatchSnapshot()`) for both each adapter's
+  vendor-specific wire payload shape and the dev server's `GET /schema`
+  dump, as a regression lock. Added a bundle-size regression check
+  (`size-limit`'s `@size-limit/file` plugin, root `.size-limit.json`, `bun
+  run size`) against already-built `dist/` artifacts, no re-bundling. Added
+  a narrow `bun:test`-only performance smoke test asserting
+  `createAnalytics()`/`track()`'s synchronous dispatch overhead stays within
+  a generous regression threshold (not comparative benchmarking, deferred to
+  Phase 19). Added a new top-level `e2e/` Playwright package (two specs) —
+  the IIFE global bundle (`dist/index.global.js`) actually loading via a
+  real `<script>` tag in a real browser, and the `pagehide`/
+  `navigator.sendBeacon` flush-on-unload behavior firing on a real
+  cross-document navigation — wired into `qa.yml`'s new "Bundle size" and
+  "e2e" steps. This phase's originating task description's claimed
+  `build:all`/framework-package CI gap was verified during research to
+  already be closed by Phase 14 (`7e2c8d2` through `4c3a3db`); no fix was
+  needed or made. Per policy, this phase's issue files stay in
+  `plan/phase-16-testing-infrastructure/` permanently.
