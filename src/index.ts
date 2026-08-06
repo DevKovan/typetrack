@@ -159,6 +159,30 @@ export interface CreateAnalyticsOptions<Events extends EventMap = EventMap> {
   // `plan/phase-15-validation-hardening/BRIEF.md` Design decision 2 for
   // the redirect-on-`replacement` behavior.
   deprecatedEvents?: DeprecatedEventsMap;
+  // Phase 15 issue 003: opt-out from runtime schema validation, resolved
+  // once at construction (like `anonymousMode`/`cookieless` -- no runtime
+  // toggle; construct a new `Analytics` instance to change it). Defaults
+  // to `true` -- omitted is zero behavior change from pre-Phase-15: every
+  // event with a `schemas[event]` entry is still validated exactly as
+  // before. `false` skips `schema.safeParse()` entirely for every event,
+  // every call -- the raw payload is forwarded exactly as it would be for
+  // an event with no `schemas[event]` entry at all (no
+  // `EventValidationError`, `onValidationError` never invoked).
+  //
+  // Core performs no `NODE_ENV`/`import.meta.env` read anywhere to decide
+  // this value -- exactly the same "caller's responsibility" contract as
+  // `devServer` above. The intended real-world use is production bundle
+  // stripping: an app passes
+  // `validate: process.env.NODE_ENV !== "production"` (or the
+  // `import.meta.env.DEV` equivalent under Vite/similar), and its own
+  // bundler's dead-code elimination removes the `schema.safeParse` call
+  // path client-side once that expression is statically `false` -- see
+  // `examples/validation/production-stripping` for the full recipe,
+  // including why fully removing the `schemas` object (and whatever
+  // Zod-based validation library built it) from a production bundle
+  // additionally requires the app to guard the *import* of that object
+  // the same way, not just this flag.
+  validate?: boolean;
 }
 
 // Phase 12 issue 003: the object form of `CreateAnalyticsOptions.reliability`
@@ -341,6 +365,10 @@ export function createAnalytics<Events extends EventMap = EventMap>(
   const normalized = normalizeProviders(options.provider ?? noopProvider);
   const schemas = options.schemas;
   const onValidationError = options.onValidationError;
+  // Phase 15 issue 003: resolved once at construction, like every other
+  // boolean policy flag in this function -- see `validate`'s doc comment
+  // above for the full contract.
+  const shouldValidate = options.validate ?? true;
   const devServerUrl = resolveDevServerUrl(options.devServer);
   // Phase 15 issue 002: opt-in deprecated-event resolution/warning for
   // `track()`. Separate key space from `warnedCapabilities`/
@@ -1148,7 +1176,11 @@ export function createAnalytics<Events extends EventMap = EventMap>(
         }).catch(() => {});
       }
 
-      const schema = schemas?.[resolvedEvent as keyof Events];
+      // Phase 15 issue 003: `shouldValidate === false` forces `schema` to
+      // `undefined` unconditionally -- the existing `if (schema) {...}
+      // else {...}` fallback below already does exactly the "forward raw,
+      // unvalidated" behavior this needs, no new branch required.
+      const schema = shouldValidate ? schemas?.[resolvedEvent as keyof Events] : undefined;
       let payload: Record<string, unknown>;
       if (schema) {
         const result = schema.safeParse(rawPayload);

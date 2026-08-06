@@ -92,4 +92,31 @@ describe("createAnalytics<Events>({ schemas }) integration", () => {
     expect(provider.calls[1]!.name).toBe("signup_completed");
     expect(provider.calls[1]!.properties).toEqual({ plan: "free", email: "a@b.co" });
   });
+
+  // Phase 15 issue 003: `validate: false` through a real multi-provider
+  // `createAnalytics()` setup -- an invalid payload (missing `email`, empty
+  // `plan`) is forwarded unvalidated to every configured provider, no
+  // `EventValidationError` thrown.
+  it("with validate: false, forwards an invalid payload unvalidated to every provider in a multi-provider fan-out", async () => {
+    const providerA = new RecordingProvider();
+    providerA.name = "a";
+    const providerB = new RecordingProvider();
+    providerB.name = "b";
+
+    const analytics = createAnalytics<AppEvents>({
+      provider: [providerA, providerB],
+      schemas: eventSchemas,
+      validate: false,
+    });
+
+    // `email` is missing entirely -- would fail `eventSchemas.signup_completed`
+    // if validation ran, but `validate: false` skips it, so this is forwarded
+    // unvalidated exactly as given.
+    await analytics.track("signup_completed", { plan: "pro" } as AppEvents["signup_completed"]);
+
+    expect(providerA.calls).toHaveLength(1);
+    expect(providerA.calls[0]!.properties).toEqual({ plan: "pro" });
+    expect(providerB.calls).toHaveLength(1);
+    expect(providerB.calls[0]!.properties).toEqual({ plan: "pro" });
+  });
 });
