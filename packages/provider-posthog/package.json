@@ -8,5 +8,8 @@
   "dependencies": {
     "posthog-node": "^5.47.3",
     "typetrack": "file:../.."
+  },
+  "devDependencies": {
+    "@typetrack/provider-contract-kit": "workspace:*"
   }
 }

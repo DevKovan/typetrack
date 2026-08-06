@@ -236,33 +236,6 @@ describe("createGA4Provider (unit)", () => {
     expect(params["referrer"]).toBe("google");
   });
 
-  it("capabilities matches the declared table exactly", () => {
-    const provider = createGA4Provider({ measurementId: "G-TEST", apiSecret: "secret" });
-
-    expect(provider.capabilities).toEqual({
-      identify: true,
-      group: false,
-      alias: false,
-      page: true,
-      screen: false,
-      batching: false,
-      offline: false,
-      featureFlags: false,
-      sessionReplay: false,
-      heatmaps: false,
-      runtimes: ["node", "browser", "edge", "bun", "deno"],
-    });
-    expect(provider.group).toBeUndefined();
-    expect(provider.alias).toBeUndefined();
-    expect(provider.screen).toBeUndefined();
-  });
-
-  it("declares runtimes: fetch-only, no Node-specific API usage", () => {
-    const provider = createGA4Provider({ measurementId: "G-TEST", apiSecret: "secret" });
-
-    expect(provider.capabilities.runtimes).toEqual(["node", "browser", "edge", "bun", "deno"]);
-  });
-
   it("flush() resolves without calling fetch", async () => {
     const provider = createGA4Provider({ measurementId: "G-TEST", apiSecret: "secret" });
 

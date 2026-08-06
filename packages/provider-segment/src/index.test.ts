@@ -331,30 +331,6 @@ describe("createSegmentProviderWithClient", () => {
     expect(aliasCalls[0]!.previousId).toBe("anon-1");
   });
 
-  it("capabilities matches the declared table exactly", () => {
-    const provider = createSegmentProviderWithClient(client);
-
-    expect(provider.capabilities).toEqual({
-      identify: true,
-      group: true,
-      alias: true,
-      page: true,
-      screen: true,
-      batching: true,
-      offline: false,
-      featureFlags: false,
-      sessionReplay: false,
-      heatmaps: false,
-      runtimes: ["node", "bun", "deno"],
-    });
-  });
-
-  it("declares runtimes: node/bun/deno only, per @segment/analytics-node's lack of edge/browser export conditions", () => {
-    const provider = createSegmentProviderWithClient(client);
-
-    expect(provider.capabilities.runtimes).toEqual(["node", "bun", "deno"]);
-  });
-
   it("flush() calls the client's non-terminal flush(), never closeAndFlush()", async () => {
     const provider = createSegmentProviderWithClient(client);
 

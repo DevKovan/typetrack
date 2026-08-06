@@ -268,31 +268,6 @@ describe("createSegmentFetchProvider (unit)", () => {
     expect(fetchCalls[0]!.url.origin).toBe("https://custom.example.com");
   });
 
-  it("capabilities matches the exact declared table (no batch key)", () => {
-    const provider = createSegmentFetchProvider({ writeKey: "test" });
-
-    expect(provider.capabilities).toEqual({
-      identify: true,
-      group: true,
-      alias: true,
-      page: true,
-      screen: true,
-      batching: false,
-      offline: false,
-      featureFlags: false,
-      sessionReplay: false,
-      heatmaps: false,
-      runtimes: ["node", "browser", "edge", "bun", "deno"],
-    });
-    expect("batch" in provider.capabilities).toBe(false);
-  });
-
-  it("declares runtimes: fetch-only, no vendor SDK import", () => {
-    const provider = createSegmentFetchProvider({ writeKey: "test" });
-
-    expect(provider.capabilities.runtimes).toEqual(["node", "browser", "edge", "bun", "deno"]);
-  });
-
   it("flush() resolves without calling fetch", async () => {
     const provider = createSegmentFetchProvider({ writeKey: "test" });
 
@@ -304,14 +279,6 @@ describe("createSegmentFetchProvider (unit)", () => {
     const provider = createSegmentFetchProvider({ writeKey: "test" });
 
     await expect(provider.destroy?.()).resolves.toBeUndefined();
-    expect(fetchCalls).toHaveLength(0);
-  });
-
-  it("reset() makes no fetch call", () => {
-    const provider = createSegmentFetchProvider({ writeKey: "test" });
-
-    provider.reset?.();
-
     expect(fetchCalls).toHaveLength(0);
   });
 

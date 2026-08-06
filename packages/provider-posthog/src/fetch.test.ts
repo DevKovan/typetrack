@@ -270,31 +270,6 @@ describe("createPostHogFetchProvider (unit)", () => {
     expect(batch.every((e) => typeof e["distinct_id"] === "string")).toBe(true);
   });
 
-  it("capabilities matches the exact declared table", () => {
-    const provider = createPostHogFetchProvider({ apiKey: "test-key" });
-
-    expect(provider.capabilities).toEqual({
-      identify: true,
-      group: true,
-      alias: true,
-      page: true,
-      screen: true,
-      batching: false,
-      offline: false,
-      featureFlags: false,
-      sessionReplay: false,
-      heatmaps: false,
-      batch: true,
-      runtimes: ["node", "browser", "edge", "bun", "deno"],
-    });
-  });
-
-  it("declares runtimes: fetch-only, no vendor SDK import", () => {
-    const provider = createPostHogFetchProvider({ apiKey: "test-key" });
-
-    expect(provider.capabilities.runtimes).toEqual(["node", "browser", "edge", "bun", "deno"]);
-  });
-
   it("flush() resolves and makes zero fetch calls", async () => {
     const provider = createPostHogFetchProvider({ apiKey: "test-key" });
 
@@ -306,13 +281,6 @@ describe("createPostHogFetchProvider (unit)", () => {
     const provider = createPostHogFetchProvider({ apiKey: "test-key" });
 
     await expect(provider.destroy?.()).resolves.toBeUndefined();
-    expect(fetchCalls).toHaveLength(0);
-  });
-
-  it("reset() does not throw and makes zero fetch calls", () => {
-    const provider = createPostHogFetchProvider({ apiKey: "test-key" });
-
-    expect(() => provider.reset?.()).not.toThrow();
     expect(fetchCalls).toHaveLength(0);
   });
 

@@ -8,5 +8,8 @@
   "dependencies": {
     "@segment/analytics-node": "^3.1.0",
     "typetrack": "file:../.."
+  },
+  "devDependencies": {
+    "@typetrack/provider-contract-kit": "workspace:*"
   }
 }

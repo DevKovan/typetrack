@@ -265,30 +265,6 @@ describe("createPostHogProviderWithClient", () => {
     expect(captureCalls[0]!.properties).toEqual({ referrer: "google", name: "Home" });
   });
 
-  it("capabilities matches the declared table exactly", () => {
-    const provider = createPostHogProviderWithClient(client);
-
-    expect(provider.capabilities).toEqual({
-      identify: true,
-      group: true,
-      alias: true,
-      page: true,
-      screen: true,
-      batching: true,
-      offline: false,
-      featureFlags: true,
-      sessionReplay: false,
-      heatmaps: false,
-      runtimes: ["node", "edge", "bun", "deno"],
-    });
-  });
-
-  it("declares runtimes: node/edge/bun/deno per posthog-node's own edge export conditions, browser excluded", () => {
-    const provider = createPostHogProviderWithClient(client);
-
-    expect(provider.capabilities.runtimes).toEqual(["node", "edge", "bun", "deno"]);
-  });
-
   it("flush() calls client.flush() and never client.shutdown()", async () => {
     const provider = createPostHogProviderWithClient(client);
 
@@ -306,18 +282,5 @@ describe("createPostHogProviderWithClient", () => {
     expect(flush).toHaveBeenCalledTimes(1);
     expect(shutdown).toHaveBeenCalledTimes(1);
     expect(callOrder).toEqual(["flush", "shutdown"]);
-  });
-
-  it("reset() does not throw and does not call any client method", () => {
-    const provider = createPostHogProviderWithClient(client);
-
-    expect(() => provider.reset?.()).not.toThrow();
-
-    expect(captureCalls).toHaveLength(0);
-    expect(identifyCalls).toHaveLength(0);
-    expect(groupIdentifyCalls).toHaveLength(0);
-    expect(aliasCalls).toHaveLength(0);
-    expect(flush).not.toHaveBeenCalled();
-    expect(shutdown).not.toHaveBeenCalled();
   });
 });

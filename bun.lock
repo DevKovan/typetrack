@@ -264,6 +264,9 @@
       "dependencies": {
         "typetrack": "file:../..",
       },
+      "devDependencies": {
+        "@typetrack/provider-contract-kit": "workspace:*",
+      },
     },
     "packages/provider-posthog": {
       "name": "@typetrack/provider-posthog",
@@ -272,6 +275,9 @@
         "posthog-node": "^5.47.3",
         "typetrack": "file:../..",
       },
+      "devDependencies": {
+        "@typetrack/provider-contract-kit": "workspace:*",
+      },
     },
     "packages/provider-segment": {
       "name": "@typetrack/provider-segment",
@@ -279,6 +285,9 @@
       "dependencies": {
         "@segment/analytics-node": "^3.1.0",
         "typetrack": "file:../..",
+      },
+      "devDependencies": {
+        "@typetrack/provider-contract-kit": "workspace:*",
       },
     },
     "packages/react": {
@@ -2353,6 +2362,12 @@
     "@testing-library/jest-dom/dom-accessibility-api": ["dom-accessibility-api@0.6.3", "", {}, "sha512-7ZgogeTnjuHbo+ct10G9Ffp0mif17idi0IyWNVA/wcwcm7NPOD/WEHVP3n7n3MhXqxoIYm8d6MuZohYWIZ4T3w=="],
 
     "@typetrack/provider-contract-kit/typetrack": ["typetrack@root:", {}],
+
+    "@typetrack/provider-ga4/typetrack": ["typetrack@root:", {}],
+
+    "@typetrack/provider-posthog/typetrack": ["typetrack@root:", {}],
+
+    "@typetrack/provider-segment/typetrack": ["typetrack@root:", {}],
 
     "@vercel/nft/glob": ["glob@13.0.6", "", { "dependencies": { "minimatch": "^10.2.2", "minipass": "^7.1.3", "path-scurry": "^2.0.2" } }, "sha512-Wjlyrolmm8uDpm/ogGyXZXb1Z+Ca2B8NbJwqBVg0axK9GbBeoS7yGV6vjXnYdGm6X53iehEuxxbyiKp8QmN4Vw=="],
 
