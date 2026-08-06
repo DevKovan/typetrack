@@ -304,3 +304,23 @@ are the record, this is just a trail of what happened when.
   wired into this repo's own test suite, per the same "no new toolchain
   dependencies" policy Phase 13 established. Per policy, this phase's issue
   files stay in `plan/phase-14-framework-wrappers/` permanently.
+- Phase 15 (validation hardening): `src/deprecation.ts` — pure
+  `resolveDeprecatedEvent()`/`formatDeprecationWarning()` module for
+  deprecated-event names, wired into `track()` via a new
+  `deprecatedEvents` option (warns once per original name; redirects to
+  `replacement` when given, so a rename is a one-config-file change, not
+  an application-code sweep). New `validate?: boolean` option
+  (default `true`) skips `schema.safeParse()` entirely when `false`,
+  resolved once at construction with no internal `NODE_ENV`/
+  `import.meta.env` read — same "caller's responsibility" contract as
+  `devServer` — intended for a caller-supplied production-stripping
+  recipe the app's own bundler dead-code-eliminates. New
+  `schemaVersion?: string | number` option stamps a single instance-level
+  tracking-plan version tag onto every `track()` call's
+  `metadata.schemaVersion` (an explicit `trackOptions.metadata.schemaVersion`
+  always wins over the instance default) — deliberately not a per-event
+  multi-version resolver, per BRIEF.md's research-grounded scope call.
+  Shipped `examples/validation/{production-stripping,
+  deprecated-event-rename,schema-versioning}`, all genuinely tested in
+  this repo. Per policy, this phase's issue files stay in
+  `plan/phase-15-validation-hardening/` permanently.
