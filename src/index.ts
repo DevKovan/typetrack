@@ -19,6 +19,8 @@ import {
 import type { PersistedQueueEntry, QueueStorageAdapter } from "./reliability/storage";
 import { EventValidationError } from "./schema";
 import type { CanonicalEvent, EventMap, SchemaMap, TrackArgs, TrackOptions } from "./schema";
+import { formatDeprecationWarning, resolveDeprecatedEvent } from "./deprecation";
+import type { DeprecatedEventsMap } from "./deprecation";
 
 export type { Middleware } from "./middleware";
 export { redactMiddleware } from "./middleware/redact";
@@ -40,6 +42,7 @@ export type { AnalyticsProvider, ProviderCapabilities } from "./providers";
 export type { ProviderEntry, RouteMatcher } from "./routing";
 export type { CanonicalEvent, EventMap, InferEvents, SchemaMap, TrackOptions } from "./schema";
 export { EventValidationError } from "./schema";
+export type { DeprecatedEventInfo, DeprecatedEventsMap } from "./deprecation";
 export type { ConsentCategory, ConsentDecision, ConsentOptions, ConsentState } from "./consent";
 export type { CapturedContext, ContextOptions } from "./context";
 export { isBrowserEnvironment } from "./context";
@@ -149,6 +152,13 @@ export interface CreateAnalyticsOptions<Events extends EventMap = EventMap> {
   // field taking its documented default. See
   // `plan/phase-12-reliability/003-reliability-wiring.md`.
   reliability?: boolean | ReliabilityOptions;
+  // Phase 15 issue 002: opt-in deprecated-event handling for track().
+  // Omitted entirely (the default) is zero behavior change from
+  // pre-Phase-15: every event name is forwarded as given, no warning, no
+  // redirect. See `src/deprecation.ts`'s `DeprecatedEventsMap` and
+  // `plan/phase-15-validation-hardening/BRIEF.md` Design decision 2 for
+  // the redirect-on-`replacement` behavior.
+  deprecatedEvents?: DeprecatedEventsMap;
 }
 
 // Phase 12 issue 003: the object form of `CreateAnalyticsOptions.reliability`
@@ -332,6 +342,13 @@ export function createAnalytics<Events extends EventMap = EventMap>(
   const schemas = options.schemas;
   const onValidationError = options.onValidationError;
   const devServerUrl = resolveDevServerUrl(options.devServer);
+  // Phase 15 issue 002: opt-in deprecated-event resolution/warning for
+  // `track()`. Separate key space from `warnedCapabilities`/
+  // `warnedAnonymousMode` above (different reason again: keyed by the
+  // caller-supplied event name, not a provider or a verb) -- one warning
+  // per distinct *original* event name, ever, for this instance.
+  const deprecatedEvents = options.deprecatedEvents;
+  const warnedDeprecatedEvents = new Set<string>();
 
   // `undefined` here is this issue's single "auto-capture is off" signal --
   // every call site below gates on `contextOptions`/`staticContext` being
@@ -1099,6 +1116,21 @@ export function createAnalytics<Events extends EventMap = EventMap>(
       // issue 001/002) -- it now only fires once tracking is allowed.
       if (!isTrackingAllowed()) return undefined;
 
+      // Phase 15 issue 002: deprecated-event resolution, before anything
+      // downstream reads `event` -- both the dev-server mirror below and the
+      // schema lookup further down must see the *resolved* name (BRIEF.md
+      // Design decision 2). Warn-once is keyed by the original `event` name,
+      // not the resolved one, so two different deprecated names that happen
+      // to redirect to the same replacement each warn independently.
+      // `resolvedEvent` is a new `const`, not a reassignment of the `event`
+      // parameter.
+      const resolved = resolveDeprecatedEvent(event as string, deprecatedEvents);
+      if (resolved.deprecated && !warnedDeprecatedEvents.has(event as string)) {
+        warnedDeprecatedEvents.add(event as string);
+        console.warn(formatDeprecationWarning(event as string, resolved.info!));
+      }
+      const resolvedEvent = resolved.name;
+
       const [rawPayload, trackOptions] = args as [unknown, TrackOptions | undefined];
 
       // Fire-and-forget mirror to the dev server, dispatched with the raw,
@@ -1112,16 +1144,16 @@ export function createAnalytics<Events extends EventMap = EventMap>(
         void fetch(devServerUrl, {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ event, payload: rawPayload }),
+          body: JSON.stringify({ event: resolvedEvent, payload: rawPayload }),
         }).catch(() => {});
       }
 
-      const schema = schemas?.[event];
+      const schema = schemas?.[resolvedEvent as keyof Events];
       let payload: Record<string, unknown>;
       if (schema) {
         const result = schema.safeParse(rawPayload);
         if (!result.success) {
-          const error = new EventValidationError(event as string, rawPayload, result.error);
+          const error = new EventValidationError(resolvedEvent, rawPayload, result.error);
           if (onValidationError) {
             onValidationError(error);
             return;
@@ -1134,7 +1166,7 @@ export function createAnalytics<Events extends EventMap = EventMap>(
       }
 
       const canonicalEvent: CanonicalEvent = {
-        name: event as string,
+        name: resolvedEvent,
         properties: payload,
         timestamp: Date.now(),
         anonymousId,
