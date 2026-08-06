@@ -6,6 +6,7 @@
   "type": "module",
   "private": false,
   "workspaces": [
+    "e2e",
     "packages/*",
     "examples/core/*",
     "examples/providers/*",
@@ -44,7 +45,7 @@
     "lint": "oxlint",
     "typecheck": "tsgo --noEmit",
     "typecheck:tsc": "tsc --noEmit",
-    "test": "bun test --conditions=browser",
+    "test": "bun test --conditions=browser --path-ignore-patterns='e2e/**'",
     "knip": "knip",
     "size": "size-limit"
   },

@@ -4,3 +4,13 @@ dist/
 .tmp-fixtures/
 *.log
 .DS_Store
+
+# Playwright (e2e/) -- current defaults per `create-playwright`'s own
+# `.gitignore` scaffolding logic. Unanchored (no leading `/`) since
+# Playwright's `testDir`/output dirs are relative to `e2e/`, not the repo
+# root.
+test-results/
+playwright-report/
+blob-report/
+playwright/.cache/
+playwright/.auth/

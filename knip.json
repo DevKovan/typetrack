@@ -39,6 +39,28 @@
       // `package.json`'s own `dependencies.typetrack` and this issue's
       // acceptance criteria), not actually unused.
       "ignoreDependencies": ["typetrack"]
+    },
+    "e2e": {
+      // Knip's built-in Playwright plugin already auto-detects
+      // `playwright.config.ts` and `tests/**/*.spec.ts` as entries -- only
+      // `server.ts` needs an explicit entry here: it's started by
+      // `playwright.config.ts`'s `webServer.command` as a shell string
+      // (`"bun run server.ts"`), not a static `import`, so knip's
+      // import-graph analysis can't discover it that way.
+      "entry": ["server.ts"],
+      // `e2e/fixtures/*.html` `<script src="/dist/index.global.js">`-load
+      // the repo root's real built artifact via a plain HTTP path
+      // `server.ts` itself resolves against the filesystem (see that
+      // file's own `repoRoot`/`join()` logic) -- not a package import
+      // resolved through `node_modules/typetrack`. This mirrors
+      // `packages/astro`'s own `ignoreDependencies` entry above (a
+      // genuinely-required dependency with no real static TS `import`
+      // anywhere for knip to trace): `dependencies.typetrack` in
+      // `e2e/package.json` exists so this workspace explicitly depends on
+      // (and `bun install` links against) the root package whose `dist/`
+      // build output these specs verify, per this issue's own acceptance
+      // criteria -- not an accidentally-unused dependency.
+      "ignoreDependencies": ["typetrack"]
     }
   }
 }
