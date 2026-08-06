@@ -183,6 +183,25 @@ export interface CreateAnalyticsOptions<Events extends EventMap = EventMap> {
   // additionally requires the app to guard the *import* of that object
   // the same way, not just this flag.
   validate?: boolean;
+  // Phase 15 issue 004: an instance-level tracking-plan version tag,
+  // stamped onto `metadata.schemaVersion` for every `track()` call.
+  // Omitted entirely (the default) is zero behavior change from
+  // pre-Phase-15: `metadata` stays exactly `trackOptions?.metadata`, no
+  // `schemaVersion` key added. A caller's own explicit
+  // `trackOptions.metadata.schemaVersion` always wins over this
+  // instance-level default (same "call-site value beats instance
+  // default" precedent as every other per-call override in this file --
+  // e.g. `trackOptions?.priority ?? 0`).
+  //
+  // This is a single flat tag, not a per-event multi-version schema
+  // resolver -- see `plan/phase-15-validation-hardening/BRIEF.md` Design
+  // decision 3 for why, and for the additive-vs-breaking schema-evolution
+  // discipline this tag is meant to support (bump this value when the
+  // tracking plan as a whole cuts a new version; use Zod's own
+  // `.optional()`/union primitives for additive field changes *within* a
+  // version; use `deprecatedEvents` -- issues 001/002 -- for renames/
+  // removals, never mutate what an existing field means in place).
+  schemaVersion?: string | number;
 }
 
 // Phase 12 issue 003: the object form of `CreateAnalyticsOptions.reliability`
@@ -364,6 +383,7 @@ export function createAnalytics<Events extends EventMap = EventMap>(
   // `createAnalytics()` itself.
   const normalized = normalizeProviders(options.provider ?? noopProvider);
   const schemas = options.schemas;
+  const schemaVersion = options.schemaVersion;
   const onValidationError = options.onValidationError;
   // Phase 15 issue 003: resolved once at construction, like every other
   // boolean policy flag in this function -- see `validate`'s doc comment
@@ -1205,7 +1225,10 @@ export function createAnalytics<Events extends EventMap = EventMap>(
         userId,
         sessionId,
         context: resolveEventContext(trackOptions),
-        metadata: trackOptions?.metadata,
+        metadata:
+          schemaVersion === undefined
+            ? trackOptions?.metadata
+            : { schemaVersion, ...trackOptions?.metadata },
       };
 
       return runThroughMiddleware(canonicalEvent, (evt) => {
