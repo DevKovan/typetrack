@@ -68,6 +68,7 @@ async function publishPackage(
   versionByName: ReadonlyMap<string, string>,
   dryRun: boolean,
   noProvenance: boolean,
+  otp: string | undefined,
 ): Promise<boolean> {
   const cwd = join(ROOT, pkg.relDir);
   const pkgJsonPath = join(cwd, "package.json");
@@ -82,6 +83,7 @@ async function publishPackage(
     const args = ["publish", "--access", "public"];
     if (!noProvenance) args.push("--provenance");
     if (dryRun) args.push("--dry-run");
+    if (otp) args.push(`--otp=${otp}`);
 
     const proc = Bun.spawn(["npm", ...args], {
       cwd,
@@ -100,6 +102,8 @@ async function publishPackage(
 async function main(): Promise<void> {
   const dryRun = process.argv.includes("--dry-run");
   const noProvenance = process.argv.includes("--no-provenance");
+  const otpArg = process.argv.find((arg) => arg.startsWith("--otp="));
+  const otp = otpArg?.slice("--otp=".length);
 
   const packages = PUBLISH_ORDER.map(readPackageInfo);
   const versionByName = new Map(packages.map((p) => [p.name, p.version]));
@@ -110,7 +114,13 @@ async function main(): Promise<void> {
     console.log(
       `\n=== ${pkg.name}@${pkg.version}${dryRun ? " (dry run)" : ""} ===`,
     );
-    const ok = await publishPackage(pkg, versionByName, dryRun, noProvenance);
+    const ok = await publishPackage(
+      pkg,
+      versionByName,
+      dryRun,
+      noProvenance,
+      otp,
+    );
     console.log(ok ? `${pkg.name}: OK` : `${pkg.name}: FAILED`);
     results.push({ name: pkg.name, ok });
   }
