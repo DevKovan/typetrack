@@ -6,6 +6,7 @@
   "type": "module",
   "private": false,
   "workspaces": [
+    "benchmarks",
     "e2e",
     "packages/*",
     "examples/core/*",

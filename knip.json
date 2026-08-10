@@ -40,6 +40,31 @@
       // acceptance criteria), not actually unused.
       "ignoreDependencies": ["typetrack"]
     },
+    "benchmarks": {
+      // Same shape as the "e2e" entry below: `stub-server.ts` is imported
+      // statically by `stub-server.test.ts` (this issue's own unit tests),
+      // but issues 004-005's Playwright config will additionally start it
+      // via `webServer.command` as a shell string (not a static `import`),
+      // the same way `e2e/playwright.config.ts` already starts
+      // `e2e/server.ts` -- an explicit entry here keeps that future,
+      // non-import-graph-visible usage from ever producing a false-positive
+      // "unused file" finding.
+      "entry": ["stub-server.ts"],
+      // The three vendor SDK devDependencies (`posthog-js`,
+      // `@segment/analytics-next`, `@rudderstack/analytics-js`) are loaded
+      // by fixture HTML `<script>` tags (issue 004) and by `stub-server.ts`
+      // resolving their real installed bundle paths off disk -- not a
+      // static TS `import` of the package itself -- so knip can't trace
+      // them as used the normal way; `typetrack` is required (see
+      // `dependencies.typetrack` in `benchmarks/package.json`) for issue
+      // 002's `mitata` suite to import the built package, same reasoning as
+      // `e2e`'s own `ignoreDependencies` entry below; and `mitata` itself is
+      // only wired up by this issue's `"bench": "bun run bench.ts"` script
+      // placeholder -- issue 002 adds `bench.ts`, the file that actually
+      // `import`s it -- so it's genuinely unused by any real TS source this
+      // issue adds, not an accidental omission.
+      "ignoreDependencies": ["typetrack", "posthog-js", "@segment/analytics-next", "@rudderstack/analytics-js", "mitata"]
+    },
     "e2e": {
       // Knip's built-in Playwright plugin already auto-detects
       // `playwright.config.ts` and `tests/**/*.spec.ts` as entries -- only

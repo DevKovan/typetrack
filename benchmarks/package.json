@@ -1,0 +1,21 @@
+{
+  "name": "benchmarks",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "bench": "bun run bench.ts",
+    "bench:browser": "playwright test",
+    "test": "bun test"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.62.1",
+    "@rudderstack/analytics-js": "3.31.6",
+    "@segment/analytics-next": "1.84.1",
+    "mitata": "1.0.34",
+    "posthog-js": "1.414.0"
+  },
+  "dependencies": {
+    "typetrack": "file:.."
+  }
+}
