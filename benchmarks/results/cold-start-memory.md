@@ -14,7 +14,7 @@ Produced by running `cd benchmarks && bun run bench:browser` (Playwright/Chromiu
 
 | Library | Runs | Median cold-start | Median heap |
 |---|---|---|---|
-| typetrack | 5 | 5.50 ms | 2,100,603 B |
-| posthog | 5 | 14.70 ms | 3,254,154 B |
-| segment | 5 | 10.70 ms | 2,619,244 B |
-| rudderstack | 5 | 19.20 ms | 3,273,328 B |
+| typetrack | 5 | 7.50 ms | 2,102,300 B |
+| posthog | 5 | 19.70 ms | 3,256,095 B |
+| segment | 5 | 12.50 ms | 2,621,096 B |
+| rudderstack | 5 | 23.80 ms | 3,269,820 B |

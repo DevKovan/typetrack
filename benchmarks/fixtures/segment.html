@@ -71,6 +71,30 @@
       analytics.ready(() => {
         window.__ready = true;
         window.__readyAt = performance.now();
+
+        // Issue 005 (throughput): `track()`'s real, installed type
+        // signature (`benchmarks/node_modules/@segment/analytics-next/
+        // dist/types/core/analytics/index.d.ts`) is
+        // `track(...): Promise<DispatchedEvent>` -- and, unlike posthog-js,
+        // that promise really does resolve only after the network round
+        // trip: this fixture's config sets no `deliveryStrategy`, so the
+        // "Segment.io" destination plugin uses the *standard* dispatcher
+        // (`src/plugins/segmentio/fetch-dispatcher.ts`), not the batching
+        // one (`batched-dispatcher.ts`) -- `dispatch()` calls a real
+        // `fetch()` per event and only resolves the promise once that
+        // `fetch()`'s `.then()` runs, and `Analytics.track()`
+        // (`src/core/analytics/index.ts`) awaits that same promise chain
+        // all the way through before its own promise resolves. So this
+        // measures time-to-all-network-confirmed (against this workspace's
+        // local stub, not a real network), one HTTP request per call, not
+        // client-side batched -- the opposite of posthog-js/rudderstack
+        // below. See `../results/throughput.md`'s methodology section.
+        window.__runThroughput = async function (n) {
+          const start = performance.now();
+          await Promise.all(Array.from({ length: n }, (_, i) => analytics.track("benchmark_event", { i })));
+          const elapsedMs = performance.now() - start;
+          return { elapsedMs, callsPerSecond: n / (elapsedMs / 1000) };
+        };
       });
     </script>
   </body>

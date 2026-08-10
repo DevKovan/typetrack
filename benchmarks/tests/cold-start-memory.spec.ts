@@ -7,6 +7,7 @@ import {
   renderResultsReport,
   summarizeFixtureRuns,
 } from "../cold-start-memory-utils";
+import { FIXTURES, gotoFixtureAndWaitForReady } from "./helpers";
 
 // Cross-library cold-start + memory comparison -- Phase 19 issue 004
 // (`plan/phase-19-performance-benchmarking/004-cross-library-cold-start-
@@ -47,16 +48,6 @@ import {
 // cares about, only the absolute numbers slightly below a genuine
 // once-ever "first visit."
 const RUNS_PER_FIXTURE = 5;
-const READY_TIMEOUT_MS = 15_000;
-
-const FIXTURES = ["typetrack", "posthog", "segment", "rudderstack"] as const;
-
-declare global {
-  interface Window {
-    __ready?: boolean;
-    __readyAt?: number;
-  }
-}
 
 test("measures cold-start time and JS heap size across all four fixtures (typetrack + 3 vendor SDKs)", async ({
   browser,
@@ -88,8 +79,7 @@ test("measures cold-start time and JS heap size across all four fixtures (typetr
         }
       });
 
-      await page.goto(`/${fixture}.html`);
-      await page.waitForFunction(() => window.__ready === true, undefined, { timeout: READY_TIMEOUT_MS });
+      await gotoFixtureAndWaitForReady(page, fixture);
 
       const result = await page.evaluate(() => ({
         coldStartMs: window.__readyAt as number,

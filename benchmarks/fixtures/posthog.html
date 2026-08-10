@@ -66,6 +66,31 @@
         loaded: () => {
           window.__ready = true;
           window.__readyAt = performance.now();
+
+          // Issue 005 (throughput): `capture()`'s real, installed type
+          // signature (`benchmarks/node_modules/posthog-js/dist/src/
+          // posthog-core.d.ts`) is `capture(...): CaptureResult | undefined`
+          // -- synchronous, not a Promise -- and its real implementation
+          // (`benchmarks/node_modules/posthog-js/lib/src/request-queue.js`'s
+          // `RequestQueue`) pushes onto an in-memory array and returns
+          // immediately; nothing is sent to the network until a
+          // `setTimeout`-scheduled flush fires later (`flush_interval_ms`,
+          // clamped between 250-5000ms, default 3000ms -- see
+          // `DEFAULT_FLUSH_INTERVAL_MS`/`clampToRange` in that same file),
+          // at which point every still-queued event is combined into one
+          // batched HTTP request. So this loop measures time-to-all-
+          // dispatched (synchronous enqueue cost only), never time-to-all-
+          // network-confirmed -- the `n` calls below complete, and this
+          // function returns, before the local stub even receives a
+          // request. See `../results/throughput.md`'s methodology section.
+          window.__runThroughput = function (n) {
+            const start = performance.now();
+            for (let i = 0; i < n; i++) {
+              window.posthog.capture("benchmark_event", { i });
+            }
+            const elapsedMs = performance.now() - start;
+            return { elapsedMs, callsPerSecond: n / (elapsedMs / 1000) };
+          };
         },
       });
     </script>

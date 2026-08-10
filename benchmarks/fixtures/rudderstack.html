@@ -91,6 +91,40 @@
       rudderanalytics.ready(() => {
         window.__ready = true;
         window.__readyAt = performance.now();
+
+        // Issue 005 (throughput): `track()`'s real, installed type
+        // signature (`benchmarks/node_modules/@rudderstack/analytics-js/
+        // dist/npm/index.d.mts`, the `analytics.d.ts` overload set) is
+        // `track(event, properties?, options?, callback?): void` --
+        // synchronous, fire-and-forget, same shape as posthog-js's
+        // `capture()`. This SDK also batches client-side: its built bundle
+        // (`dist/npm/modern/bundled/umd/index.js`) references an
+        // `eventsQueuePluginName` events queue with `maxItems`/
+        // `flushQueueInterval` options and resolves a `/v1/batch` delivery
+        // URL (`getBatchDeliveryUrl()`), i.e. multiple queued `track()`
+        // calls are combined into one batched HTTP request on a timer, not
+        // sent one-request-per-call. So, like posthog-js, this loop
+        // measures time-to-all-dispatched (synchronous enqueue cost only),
+        // not time-to-all-network-confirmed -- but that per-call
+        // synchronous enqueue cost is real work, not free: this SDK's
+        // `RetryQueue` class is backed by `localStorage` by default (its
+        // constructor's `storageType = LOCAL_STORAGE` default parameter),
+        // and `addItem()`/`enqueue()` serializes and writes the *entire*
+        // queue array back to storage on every single call
+        // (`setStorageEntry(QueueStatuses.QUEUE, queue)`) -- an O(queue
+        // length) synchronous cost per `track()` call, not O(1). This is
+        // confirmed, by reading this SDK's own real code, to be the reason
+        // its measured calls/sec is markedly lower than posthog-js's
+        // (in-memory-array-only) queue in `../results/throughput.md`, not a
+        // fixture bug.
+        window.__runThroughput = function (n) {
+          const start = performance.now();
+          for (let i = 0; i < n; i++) {
+            rudderanalytics.track("benchmark_event", { i });
+          }
+          const elapsedMs = performance.now() - start;
+          return { elapsedMs, callsPerSecond: n / (elapsedMs / 1000) };
+        };
       });
     </script>
   </body>

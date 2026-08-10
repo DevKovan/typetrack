@@ -28,9 +28,30 @@
     <script src="/dist/index.global.js"></script>
     <script>
       const { createAnalytics, noopProvider } = window.Typetrack;
-      createAnalytics({ provider: noopProvider });
+      const analytics = createAnalytics({ provider: noopProvider });
       window.__ready = true;
       window.__readyAt = performance.now();
+
+      // Issue 005 (throughput): `track()`'s real return type
+      // (`src/index.ts`) is `void | Promise<void>` -- with `noopProvider`
+      // (a fully synchronous no-op, no middleware/schema registered by this
+      // fixture) it actually returns `undefined` every call, no I/O and no
+      // microtask at all, so this measures pure synchronous dispatch-loop
+      // overhead only. `Promise.all(...)` around the loop is still used
+      // (rather than a bare `for` loop) so this fixture's own measurement
+      // code doesn't silently assume "always sync" and break if a future
+      // provider/middleware config here ever returned a real `Promise` --
+      // `Promise.all` accepts a mix of values and promises identically. See
+      // `../results/throughput.md`'s methodology section for why this
+      // fixture's number is not directly comparable to a vendor SDK number
+      // that does perform real network I/O per call: `noopProvider` never
+      // contacts `../stub-server.ts` at all.
+      window.__runThroughput = async function (n) {
+        const start = performance.now();
+        await Promise.all(Array.from({ length: n }, (_, i) => analytics.track("benchmark_event", { i })));
+        const elapsedMs = performance.now() - start;
+        return { elapsedMs, callsPerSecond: n / (elapsedMs / 1000) };
+      };
     </script>
   </body>
 </html>
