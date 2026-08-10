@@ -118,7 +118,13 @@ describe("root `bun run build` IIFE/global output, real build artifact", () => {
       expect(typeof analytics.flush).toBe("function");
       expect(() => analytics.track("some_event", { foo: "bar" })).not.toThrow();
     } finally {
-      await GlobalRegistrator.unregister();
+      // Already rerun-each-safe (register/unregister both scoped to this
+      // `it()`, unlike the module-top-level-register pattern the other
+      // `testSetup.ts` files use), but guarded defensively for the same
+      // reason as `packages/svelte/src/AnalyticsProvider.test.ts`'s afterAll.
+      if (GlobalRegistrator.isRegistered) {
+        await GlobalRegistrator.unregister();
+      }
     }
   });
 

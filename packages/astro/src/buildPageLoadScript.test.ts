@@ -26,7 +26,14 @@ import { GlobalRegistrator } from "@happy-dom/global-registrator";
 import { buildPageLoadScript } from "./buildPageLoadScript";
 
 afterAll(() => {
-  GlobalRegistrator.unregister();
+  // Guarded: see `packages/svelte/src/AnalyticsProvider.test.ts`'s
+  // identical afterAll comment -- under `bun test --rerun-each`, this
+  // file's hooks re-run per rerun but `./testSetup`'s module-top-level
+  // `register()` does not, so an unguarded second `unregister()` throws.
+  // Normal CI (`bun run test`) never re-runs this file.
+  if (GlobalRegistrator.isRegistered) {
+    GlobalRegistrator.unregister();
+  }
 });
 
 interface MinimalEvent {

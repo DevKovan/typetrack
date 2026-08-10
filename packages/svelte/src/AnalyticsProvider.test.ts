@@ -41,7 +41,19 @@ const { default: ConsumerFixture } = await import("./__fixtures__/ConsumerFixtur
 const { default: ProviderHarnessFixture } = await import("./__fixtures__/ProviderHarnessFixture.svelte");
 
 afterAll(() => {
-  GlobalRegistrator.unregister();
+  // Guarded: under `bun test --rerun-each`, this file's hooks (afterAll
+  // included) re-run once per rerun, but `../testSetup`'s top-level
+  // `GlobalRegistrator.register()` call does not (Bun re-executes a test
+  // file's hooks/tests on rerun, not its module-level side effects) -- an
+  // unguarded second `unregister()` call throws "has not previously been
+  // globally registered". Normal CI (`bun run test`, no `--rerun-each`)
+  // never re-runs this file, so this only matters for that stress-testing
+  // tool; the guard turns a crash into a no-op instead of chasing full
+  // multi-rerun DOM availability, which the register-at-import-time
+  // ordering hazard `../testSetup` documents makes structurally hard.
+  if (GlobalRegistrator.isRegistered) {
+    GlobalRegistrator.unregister();
+  }
 });
 
 interface TestEvents extends EventMap {

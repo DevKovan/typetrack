@@ -79,3 +79,42 @@ cause beyond "GitHub-side, transient, evidenced but not root-caused."
 minutes, it's very likely this — just re-push (an empty
 `git commit --allow-empty` or any small follow-up commit) rather than
 assuming `qa.yml` or the push itself is broken.
+
+## Flaky-test triage
+
+Baseline (`bun run test`, exactly what `qa.yml` runs — no flags) is
+**not** flaky: run three independent times back to back on a clean build,
+1348/1348 pass every time.
+
+`bun test --rerun-each=N` (Bun's built-in repeated-run flag) is a good
+tool for surfacing test-isolation bugs that a single run can't, but this
+repo's happy-dom-based DOM tests have one known, structural limitation
+under it — see
+`plan/phase-20-ci-hardening/002-flaky-test-triage-happy-dom-rerun-guard.md`
+for the full investigation:
+
+- `packages/{react,next,remix,svelte,vue,solid,astro,nuxt}/src/**/
+  testSetup.ts` each register happy-dom's DOM globals
+  (`GlobalRegistrator.register()`) at module top level — required because
+  `vue`/`svelte`/`solid`/etc. must import *after* DOM globals exist. Bun's
+  `--rerun-each` re-runs a file's hooks/tests N times but not its
+  top-level module code, so `register()` only ever fires once per
+  process. The paired `afterAll(() => GlobalRegistrator.unregister())`
+  used to fire on every rerun regardless, throwing on rerun #2 onward.
+  **Fixed**: every `GlobalRegistrator.unregister()` call site (9 total,
+  listed in issue 002) is now guarded with
+  `GlobalRegistrator.isRegistered`, turning the crash into a no-op.
+- **Not fixed, left as a documented limitation**: DOM globals still
+  aren't *re*-registered on reruns #2+ (the ESM-ordering constraint above
+  means `register()` can't move into a hook that would re-run), so
+  DOM-dependent assertions on those later reruns still fail with
+  `"document is not defined"` — in the same 9 files, and identically in
+  `examples/frameworks/{vue,svelte,solid}` (not touched this round, same
+  root cause). This never affects real CI, which never invokes
+  `--rerun-each`. Fully closing it would mean restructuring how these
+  packages load framework dependencies relative to DOM registration — a
+  testing-infrastructure design change, not a triage-sized fix.
+
+If you add a new package with its own happy-dom `testSetup.ts`, copy the
+guarded-`unregister()` pattern from any of the 9 files above rather than
+the old bare `GlobalRegistrator.unregister()` call.

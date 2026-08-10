@@ -55,7 +55,14 @@ const { default: ConsumerFixture } = await import("./__fixtures__/ConsumerFixtur
 const { default: ProviderHarnessFixture } = await import("./__fixtures__/ProviderHarnessFixture");
 
 afterAll(() => {
-  GlobalRegistrator.unregister();
+  // Guarded: see `packages/svelte/src/AnalyticsProvider.test.ts`'s
+  // identical afterAll comment -- under `bun test --rerun-each`, this
+  // file's hooks re-run per rerun but `./testSetup`'s module-top-level
+  // `register()` does not, so an unguarded second `unregister()` throws.
+  // Normal CI (`bun run test`) never re-runs this file.
+  if (GlobalRegistrator.isRegistered) {
+    GlobalRegistrator.unregister();
+  }
 });
 
 // `@solidjs/testing-library`'s own auto-cleanup (an `afterEach(cleanup)` it
