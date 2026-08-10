@@ -95,6 +95,18 @@ describe("startDevServer, real HTTP round trip", () => {
     expect(printed).not.toContain('"code"');
   });
 
+  it("GET / serves the event inspector HTML page", async () => {
+    handle = await startDevServer({ startPort: 4940 });
+
+    const response = await fetch(`${handle.url}/`);
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toStartWith("text/html");
+
+    const body = await response.text();
+    expect(body.length).toBeGreaterThan(0);
+    expect(body).toContain("<!doctype html>");
+  });
+
   it("prints exactly one line on a successful POST", async () => {
     handle = await startDevServer({ startPort: 4930 });
 

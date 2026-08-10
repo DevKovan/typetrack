@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { formatSuccessLine, formatValidationDiff } from "./format";
+import { renderInspectorPage } from "./inspectorPage";
 import { deletePortFile, writePortFile } from "./portFile";
 import { findFreePort, waitForHealthy } from "./ports";
 import { buildEventJsonSchemas } from "./schemaExport";
@@ -170,6 +171,13 @@ export async function startDevServer(options: DevServerOptions = {}): Promise<De
         port: candidatePort,
         hostname,
         routes: {
+          "/": {
+            GET: () =>
+              new Response(renderInspectorPage(), {
+                status: 200,
+                headers: { "content-type": "text/html; charset=utf-8" },
+              }),
+          },
           "/events": {
             POST: handlePostEvents,
             GET: handleGetEvents,

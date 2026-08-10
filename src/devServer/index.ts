@@ -25,3 +25,4 @@ export {
 } from "./server";
 export { buildEventJsonSchemas, type EventJsonSchemas } from "./schemaExport";
 export { renderEventCatalog } from "./eventCatalog";
+export { renderInspectorPage } from "./inspectorPage";
