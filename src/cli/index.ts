@@ -12,14 +12,26 @@ if (typeof Bun === "undefined") {
   process.exit(1);
 }
 
-const [, , command, ...rest] = process.argv;
+const COMMANDS: Record<string, { usage: string; run: (argv: string[]) => Promise<number> }> = {
+  dev: {
+    usage: "typetrack dev [--config <path>] [--port <n>] [--buffer-size <n>]",
+    run: async (argv) => (await import("./dev")).runDevCommand(argv),
+  },
+  schema: {
+    usage: "typetrack schema [--config <path>] [--out <path>]",
+    run: async (argv) => (await import("./schema")).runSchemaCommand(argv),
+  },
+};
 
-if (command !== "dev") {
+const [, , command, ...rest] = process.argv;
+const entry = command ? COMMANDS[command] : undefined;
+
+if (!entry) {
   console.error(`✗ Unknown command: "${command ?? ""}"`);
-  console.error("Usage: typetrack dev [--config <path>] [--port <n>] [--buffer-size <n>]");
+  console.error(`Usage: typetrack <${Object.keys(COMMANDS).join("|")}> ...`);
+  for (const { usage } of Object.values(COMMANDS)) console.error(`  ${usage}`);
   process.exit(1);
 }
 
-const { runDevCommand } = await import("./dev");
-const exitCode = await runDevCommand(rest);
+const exitCode = await entry.run(rest);
 process.exit(exitCode);

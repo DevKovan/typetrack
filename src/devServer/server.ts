@@ -2,6 +2,7 @@ import { z } from "zod";
 import { formatSuccessLine, formatValidationDiff } from "./format";
 import { deletePortFile, writePortFile } from "./portFile";
 import { findFreePort, waitForHealthy } from "./ports";
+import { buildEventJsonSchemas } from "./schemaExport";
 import { createSseUnderlyingSource } from "./sse";
 
 export interface DevServerOptions {
@@ -128,13 +129,7 @@ export async function startDevServer(options: DevServerOptions = {}): Promise<De
   }
 
   function handleGetSchema(): Response {
-    const events: Record<string, unknown> = {};
-    if (schemas) {
-      for (const [name, schema] of Object.entries(schemas)) {
-        events[name] = z.toJSONSchema(schema);
-      }
-    }
-    return jsonResponse({ events }, 200);
+    return jsonResponse(buildEventJsonSchemas(schemas), 200);
   }
 
   function handleGetHealth(): Response {

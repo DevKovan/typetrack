@@ -23,3 +23,4 @@ export {
   type DevServerListener,
   type DevServerOptions,
 } from "./server";
+export { buildEventJsonSchemas, type EventJsonSchemas } from "./schemaExport";
