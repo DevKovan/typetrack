@@ -72,6 +72,10 @@ in any particular manual order yourself.
 `@size-limit/file`. It requires `bun run build:all` to have already run —
 it checks already-built files, it does not build them itself.
 
+See [`CONTRIBUTING.md`](./CONTRIBUTING.md) for known CI-reliability
+findings (a GitHub Actions trigger-flakiness investigation and its
+evidence) and the flaky-test triage process/results.
+
 ## Status
 
 Pre-1.0, not yet published to npm. Phases 0-16 have landed (canonical event
