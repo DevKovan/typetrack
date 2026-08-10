@@ -1,5 +1,9 @@
 # typetrack
 
+[![npm version](https://img.shields.io/npm/v/typetrack)](https://www.npmjs.com/package/typetrack)
+[![npm downloads](https://img.shields.io/npm/dm/typetrack)](https://www.npmjs.com/package/typetrack)
+[![license](https://img.shields.io/npm/l/typetrack)](https://www.npmjs.com/package/typetrack)
+
 Typed, zero-runtime-cost analytics SDK.
 
 ## Install
@@ -78,7 +82,8 @@ evidence) and the flaky-test triage process/results.
 
 ## Status
 
-Pre-1.0, not yet published to npm. Phases 0-16 have landed (canonical event
+Pre-1.0. The npm publish pipeline (`release.yml`) is built and dry-run
+verified; the first real publish is a pending manual step. Phases 0-16 have landed (canonical event
 model, multi-provider routing, middleware, context auto-capture, plugins,
 privacy/consent, reliability/offline queue, runtime-agnostic adapters,
 remaining framework wrappers, validation hardening, testing infrastructure)
