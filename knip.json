@@ -48,22 +48,23 @@
       // the same way `e2e/playwright.config.ts` already starts
       // `e2e/server.ts` -- an explicit entry here keeps that future,
       // non-import-graph-visible usage from ever producing a false-positive
-      // "unused file" finding.
+      // "unused file" finding. `internal.bench.ts` (issue 002) needs no
+      // equivalent explicit entry -- knip already discovers it as an entry
+      // via `package.json`'s `"bench"` script referencing it directly
+      // (confirmed empirically: adding it here was flagged as a "redundant
+      // entry pattern" hint by knip itself), unlike `stub-server.ts`, which
+      // is only started via a shell string inside a Playwright
+      // `webServer.command` knip's script-detection doesn't see.
       "entry": ["stub-server.ts"],
       // The three vendor SDK devDependencies (`posthog-js`,
       // `@segment/analytics-next`, `@rudderstack/analytics-js`) are loaded
       // by fixture HTML `<script>` tags (issue 004) and by `stub-server.ts`
       // resolving their real installed bundle paths off disk -- not a
       // static TS `import` of the package itself -- so knip can't trace
-      // them as used the normal way; `typetrack` is required (see
-      // `dependencies.typetrack` in `benchmarks/package.json`) for issue
-      // 002's `mitata` suite to import the built package, same reasoning as
-      // `e2e`'s own `ignoreDependencies` entry below; and `mitata` itself is
-      // only wired up by this issue's `"bench": "bun run bench.ts"` script
-      // placeholder -- issue 002 adds `bench.ts`, the file that actually
-      // `import`s it -- so it's genuinely unused by any real TS source this
-      // issue adds, not an accidental omission.
-      "ignoreDependencies": ["typetrack", "posthog-js", "@segment/analytics-next", "@rudderstack/analytics-js", "mitata"]
+      // them as used the normal way. `typetrack` and `mitata` are both now
+      // real, statically-`import`ed dependencies of `internal.bench.ts`
+      // (issue 002) -- no longer ignored here.
+      "ignoreDependencies": ["posthog-js", "@segment/analytics-next", "@rudderstack/analytics-js"]
     },
     "e2e": {
       // Knip's built-in Playwright plugin already auto-detects

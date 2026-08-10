@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "bench": "bun run bench.ts",
+    "bench": "bun run internal.bench.ts",
     "bench:browser": "playwright test",
     "test": "bun test"
   },
