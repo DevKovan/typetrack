@@ -96,15 +96,18 @@ overlay.
 **Phase 19 — Performance benchmarking.** Bundle size, cold start, memory,
 throughput, tree-shaking; comparison against PostHog/Segment/RudderStack.
 
-**Phase 20 — CI hardening.** Branch protection on `main`, required-checks
-config, flaky-test triage. (Carried over from the original plan,
+**Phase 20 — CI hardening.** GitHub Actions push-trigger flakiness
+investigation, flaky-test triage. (Carried over from the original plan,
 resequenced here since it's independent of the architecture work and
-low-risk to defer.)
+low-risk to defer. Branch protection split out to Phase 22 — see below.)
 
 **Phase 21 — npm publish CI + SEO pass.** `release.yml`, `npm publish
 --provenance`, keywords/README/badges. (Carried over from the original
 plan — makes most sense once the public API from phases 6-7 has settled,
 so the first published version reflects the real shape.)
+
+**Phase 22 — Branch protection.** Branch protection rules on `main`,
+required-checks config for future PR-based contributions.
 
 ## Explicitly out of scope for now (VISION.md "Future investigation")
 
