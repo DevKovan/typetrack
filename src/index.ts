@@ -37,6 +37,8 @@ export { versionMiddleware } from "./middleware/version";
 export type { VersionOptions } from "./middleware/version";
 export { timingMiddleware } from "./middleware/timing";
 export type { TimingOptions } from "./middleware/timing";
+export { debugOverlayMiddleware } from "./middleware/debugOverlay";
+export type { DebugOverlayOptions } from "./middleware/debugOverlay";
 export { noopProvider } from "./providers";
 export type { AnalyticsProvider, ProviderCapabilities } from "./providers";
 export type { ProviderEntry, RouteMatcher } from "./routing";
