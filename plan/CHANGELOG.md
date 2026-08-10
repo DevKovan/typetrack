@@ -396,3 +396,24 @@ are the record, this is just a trail of what happened when.
   pieces are documented and cross-linked in a new `docs/tooling.md` guide.
   Per policy, this phase's issue files stay in
   `plan/phase-18-tooling-extras/` permanently.
+- Phase 19 (performance benchmarking): a new top-level `benchmarks/`
+  workspace (sibling of `e2e/`/`packages/`/`examples/`, never wired into
+  `qa.yml` as a CI gate) adds `bun run bench` (`mitata`, Bun-native —
+  cold start/throughput/memory across four opt-in-feature configurations
+  for typetrack itself, fully reproducible with no cross-vendor fairness
+  question) and `bun run bench:browser` (Playwright/Chromium, a local
+  `Bun.serve()` stub ingestion endpoint standing in for live vendor
+  infrastructure — cross-library cold-start/memory/throughput comparison
+  against `posthog-js`/`@segment/analytics-next`/`@rudderstack/analytics-js`,
+  each with heaviest optional init-time features explicitly disabled),
+  plus a static bundle-size/tree-shaking comparison sourced from a dated
+  bundlephobia snapshot (`benchmarks/vendor-sizes.json`). Real vendor SDKs
+  and `mitata` are `benchmarks/`-local `devDependencies` only, never
+  touching root `package.json` or any `packages/*` package. Results are
+  committed, sourced snapshots (`benchmarks/results/*.md`), transcribed
+  into `docs/performance.md` (a new comparative-across-config table plus a
+  full vendor-comparison section) and `docs/comparison.md` (the "Bundle
+  size / performance" row and its surrounding paragraph), replacing every
+  prior "not yet published, Phase 19's job" placeholder. Per policy, this
+  phase's issue files stay in `plan/phase-19-performance-benchmarking/`
+  permanently.

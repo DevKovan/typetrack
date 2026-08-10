@@ -29,7 +29,10 @@ code, event names, or payloads.
   and the eight built-in middlewares (redaction, PII filtering, sampling,
   logging, enrichment, version injection, timing, and a debug overlay).
 - **[Performance](./performance.md)** — what's free, what's opt-in cost,
-  and the current bundle-size/regression budgets.
+  the current bundle-size/regression budgets, and real internal +
+  cross-library (PostHog/Segment/RudderStack) benchmark numbers, with links
+  out to `benchmarks/results/*.md` and `benchmarks/README.md` to reproduce
+  them.
 - **[Comparison](./comparison.md)** — typetrack vs. direct PostHog/Segment/
   RudderStack SDK usage.
 - **[Tooling](./tooling.md)** — the `typetrack schema`/`typetrack docs` CLI

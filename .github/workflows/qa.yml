@@ -87,14 +87,15 @@ jobs:
         # Confirmed by hand to be a safe, no-op addition for every other
         # package's own tests (none of their dependencies branch on a
         # `"browser"` export condition the way `svelte` does). Mirrors root
-        # `package.json`'s own `"test"` script, including
-        # `--path-ignore-patterns=e2e/**`: `bun test`'s default file
+        # `package.json`'s own `"test"` script, including both
+        # `--path-ignore-patterns` flags: `bun test`'s default file
         # discovery matches `*.spec.ts` (not just `*.test.ts`), which would
-        # otherwise sweep up `e2e/tests/*.spec.ts` -- real `@playwright/test`
+        # otherwise sweep up `e2e/tests/*.spec.ts` and (since Phase 19)
+        # `benchmarks/tests/*.spec.ts` -- both real `@playwright/test`
         # specs, meaningless (and broken) under `bun:test`'s own runner --
-        # into this repo-wide run. Confirmed by hand: without this flag,
+        # into this repo-wide run. Confirmed by hand: without these flags,
         # `bun test` both fails to run the Playwright specs and produces
         # unrelated collateral failures elsewhere in the same run.
-        run: bun test --conditions=browser --path-ignore-patterns='e2e/**'
+        run: bun test --conditions=browser --path-ignore-patterns='e2e/**' --path-ignore-patterns='benchmarks/tests/**'
       - name: Unused code check
         run: bunx knip

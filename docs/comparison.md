@@ -18,13 +18,14 @@ SDK is the right call instead.
 | Offline queue / reliability | Opt-in offline queue, IndexedDB→localStorage→memory fallback, retry/backoff, dead-lettering (`reliability` option, `src/reliability/`) | Own internal client-side batching (`flushAt`/`flushInterval`), no offline-aware persistent queue | Similar client-side batching, no offline persistence | Has its own separate offline/retry story in its own SDK — out of scope to fully characterize here |
 | Consent/privacy primitives | `consent` option, `anonymousMode`, `cookieless`, `redactMiddleware`/`piiFilterMiddleware`, all provider-agnostic (`src/consent.ts`, `src/middleware/`) | Vendor-specific opt-out mechanism | Vendor-specific opt-out mechanism | Vendor-specific opt-out mechanism |
 | Framework wrapper coverage | React, Next.js, Vue, Nuxt, Svelte, Solid, Astro, Remix — all provider-agnostic (`packages/`) | Own framework integration, if any, tied to PostHog only | Own framework integration, if any, tied to Segment only | Own framework integration, if any, tied to RudderStack only |
-| Bundle size / performance | See [`docs/performance.md`](./performance.md) for typetrack's own numbers | Not compared numerically here | Not compared numerically here | Not compared numerically here |
+| Bundle size / performance | typetrack core: 15,810 B gzip (ESM) vs. PostHog 77,616 B, Segment 28,246 B, RudderStack 31,123 B — see [`docs/performance.md`](./performance.md#comparative-benchmarks-vs-posthogsegmentrudderstack) | See [`docs/performance.md`](./performance.md#comparative-benchmarks-vs-posthogsegmentrudderstack) | See [`docs/performance.md`](./performance.md#comparative-benchmarks-vs-posthogsegmentrudderstack) | See [`docs/performance.md`](./performance.md#comparative-benchmarks-vs-posthogsegmentrudderstack) |
 
 A numeric, apples-to-apples bundle-size/cold-start/memory/throughput
-comparison against these three vendors' own SDKs is Phase 19's job
-(`plan/ROADMAP.md`) — not yet published. Don't infer a number from this
-page; see [`docs/performance.md`](./performance.md) for what's measured
-today (typetrack's own budgets only).
+comparison against these three vendors' own SDKs now exists — see
+[`docs/performance.md`](./performance.md#comparative-benchmarks-vs-posthogsegmentrudderstack)
+for the real tables and each result file's full methodology/fairness
+caveats. This page stays qualitative and capability-focused; it doesn't
+duplicate those numbers.
 
 **RudderStack has no typetrack adapter yet** — the "Direct RudderStack
 SDK" column above describes using RudderStack's own SDK directly, not a
