@@ -44,7 +44,7 @@
   "unpkg": "./dist/index.global.js",
   "jsdelivr": "./dist/index.global.js",
   "bin": {
-    "typetrack": "./dist/cli.js"
+    "typetrack": "dist/cli.js"
   },
   "exports": {
     ".": {

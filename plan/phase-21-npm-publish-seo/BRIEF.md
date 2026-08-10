@@ -1,5 +1,48 @@
 # Phase 21 brief: npm publish CI + SEO pass
 
+## Correction, found during implementation (supersedes "bun publish, not npm
+## publish" below — read this first)
+
+Issue 001 landed as planned. While implementing issue 002, two things
+turned up by hand-testing (`bun publish --help`, `bun pm pack --dry-run`,
+and inspecting an actual packed tarball's `package.json` after a real `bun
+install`) that the original research grounding below got wrong:
+
+1. **`bun publish` (installed version 1.3.14) has no `--provenance` flag
+   at all** — confirmed via `bun publish --help` (no such flag listed) and
+   an open, unresolved Bun issue (oven-sh/bun#15601, "Implement `bun
+   publish --provenance` as in npm"). The BRIEF's "provenance from day
+   one" decision is still correct; the tool choice to get there was wrong.
+2. **Bun's `workspace:*` resolution at pack time reads a cached `version`
+   field in `bun.lock`, not the sibling's live `package.json`** — and a
+   plain `bun install` (even `bun install --force`) does **not** refresh
+   that cached field after a workspace member's own `package.json`
+   `version` changes; only a full lockfile regeneration (`rm bun.lock &&
+   bun install`) does. Verified by hand: after issue 001's `0.0.0` →
+   `0.1.0` bump + a normal `bun install`, `bun pm pack --dry-run` on
+   `packages/next` still packed `"@typetrack/react": "0.0.0"` into the
+   tarball's `package.json` — silently wrong, the exact same class of bug
+   as the already-known `file:../..` problem, just for the other
+   protocol.
+
+**Revised decision: use `npm publish` (not `bun publish`) as the actual
+registry-write command**, invoked via `scripts/publish.ts`. npm supports
+`--provenance` natively (this was always true — the original research
+grounding correctly established this for npm, the BRIEF just then
+incorrectly assumed `bun publish` shared it) and, since npm doesn't
+understand either `workspace:*` or `file:` protocols at all, the script
+must fully resolve *both* to concrete `^x.y.z` semver ranges itself before
+invoking `npm publish` — reading every version directly from each
+package's own on-disk `package.json` (never from `bun.lock`, which this
+finding shows can silently lag). This is a strictly larger rewrite
+surface than the BRIEF originally scoped (workspace: refs now need the
+same treatment as file: refs) but the mechanism — temporary rewrite,
+publish, restore — is unchanged. Issues 002 and 003 below reflect this
+correction directly; treat their text, not the original prose further
+down mentioning `bun publish`, as authoritative.
+
+---
+
 Read CLAUDE.md, `plan/VISION.md`, and `plan/ROADMAP.md` (Phase 21 section)
 first. Then read `plan/phase-20-ci-hardening/BRIEF.md` (most recent
 precedent for this document's structure) and `.github/workflows/qa.yml` in

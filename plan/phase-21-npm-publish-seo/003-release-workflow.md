@@ -1,5 +1,16 @@
 # 003 — `release.yml` GitHub Actions workflow
 
+**Note the BRIEF's "Correction, found during implementation" section**
+(top of `BRIEF.md`): the actual publish command issue 002's script invokes
+is `npm publish`, not `bun publish` (`bun publish` has no `--provenance`
+flag). This changes nothing about this issue's own steps below — `bun
+install`/`bun run build:all` still run via Bun as planned, only the final
+publish subprocess (inside `scripts/publish.ts`, already reflecting this)
+differs from the original text. `actions/setup-node`'s `registry-url` is
+more directly load-bearing now than originally described, since it's
+configuring auth for the actual `npm publish` call, not just an
+NODE_AUTH_TOKEN env-var Bun happens to also read.
+
 ## Context
 
 Read `plan/phase-21-npm-publish-seo/BRIEF.md` in full first — this issue
@@ -22,18 +33,19 @@ without re-reading the BRIEF's reasoning):
   an explicit opt-out, not an explicit opt-in. Get this default direction
   right, it's a deliberate safety property, not an arbitrary choice.
 - **Permissions**: `contents: read`, `id-token: write` (the latter is
-  required for `--provenance`'s Sigstore/OIDC signing step inside `bun
+  required for `--provenance`'s Sigstore/OIDC signing step inside `npm
   publish`, per BRIEF research — without it the publish step will fail at
   the provenance-signing stage even with a valid `NPM_TOKEN`).
 - **Job steps**, in order:
   1. `actions/checkout@v4`
-  2. `oven-sh/setup-bun@v2` with `bun-version: latest` (matches `qa.yml`).
+  2. `oven-sh/setup-bun@v2` with `bun-version: latest` (matches `qa.yml`
+     — still needed for `bun install`/`bun run build:all` below; only the
+     final publish subprocess uses `npm`, not Bun).
   3. `actions/setup-node@v4` with `node-version: '24'` and
-     `registry-url: 'https://registry.npmjs.org/'` — required so the npm
-     auth environment (`NODE_AUTH_TOKEN`) is wired up correctly even
-     though the actual publish command is `bun publish`, not `npm
-     publish` (Bun reads the same `NODE_AUTH_TOKEN` env var / generated
-     `.npmrc` that `setup-node` produces).
+     `registry-url: 'https://registry.npmjs.org/'` — writes the `.npmrc`
+     that the actual publish command (`npm publish`, invoked from inside
+     `scripts/publish.ts` — see BRIEF correction) reads its registry auth
+     from via the `NODE_AUTH_TOKEN` env var.
   4. `bun install` (matches `qa.yml`).
   5. `bun run build:all` (matches `qa.yml`'s Build step exactly — same
      command, no divergence; every publishable package's `dist/` must

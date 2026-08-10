@@ -14,34 +14,34 @@ having landed.
    be passing from each prior issue's own local QA pass, this is a final
    confirmation after all four land together).
 2. Run `bun run scripts/publish.ts --dry-run` for real, against all 9
-   packages. It is expected to fail at the actual `bun publish --dry-run`
-   subprocess call with an npm auth error (`missing authentication` — no
-   npm login exists in this environment, documented limitation, not a
-   bug to fix). What this run must demonstrate, and what to actually
-   check:
+   packages. Per the BRIEF's correction (publish command is `npm publish`,
+   not `bun publish`), this actually **runs to completion successfully**
+   in this session — `npm publish --dry-run` does not require a logged-in
+   session (verified by hand: it prints `npm warn This command requires
+   you to be logged in ... (dry-run)` as a non-fatal warning and still
+   exits 0 with full tarball-contents output). This means the dry run is
+   real, complete verification, not a truncated one blocked by auth.
+   Confirm from the log output/exit code:
    - The script attempts packages in the documented order (root first,
-     then the two dependency tiers) — confirm from the log output.
-   - After the script exits (non-zero, expected), run `git status` and
-     `git diff`. **Must show zero modified files.** If any
-     `packages/*/package.json` is left modified, issue 002's
-     restore-on-failure logic has a bug — go fix it in a follow-up commit
-     to issue 002's script before proceeding (don't paper over it here).
-3. Since `bun publish --dry-run` can't get past the auth wall in this
-   session, get real tarball-content verification via `npm pack --dry-run`
-   instead (no auth needed — confirmed in BRIEF research). Run it for
-   real, per package, **after** temporarily performing the same
-   `file:../..` → `^0.1.0` rewrite issue 002's script does (you can invoke
-   the rewrite portion of `scripts/publish.ts` directly if it's factored
-   in a way that allows that, or perform the equivalent rewrite by hand
-   for this verification pass only — either way, restore the file
-   afterward and confirm `git status` is clean again). For at least 3
-   packages (root `typetrack`, one single-dependency-tier package like
-   `packages/react`, and one that has both a `workspace:*` and a rewritten
-   `typetrack` dep like `packages/next`), confirm via the `npm pack
-   --dry-run` output that the tarball contains: `dist/` (built files),
-   `README.md` (the package's own, from issue 004), `LICENSE` (from issue
-   001), and that `package.json`'s packed `dependencies.typetrack` field
-   shows `^0.1.0`, not `file:../..`.
+     then the two dependency tiers).
+   - Every one of the 9 packages' `npm publish --dry-run` output shows the
+     correct tarball contents: `dist/` (built files), `README.md` (the
+     package's own, from issue 004), `LICENSE` (from issue 001), and a
+     `package.json` whose dependency lines show real `^0.1.0` ranges, not
+     `workspace:*`/`file:../..`.
+   - The script's own exit code is `0` (all 9 succeeded).
+   - After the script exits, run `git status` and `git diff`. **Must show
+     zero modified files.** If any `packages/*/package.json` is left
+     modified, issue 002's restore-on-failure logic has a bug — go fix it
+     in a follow-up commit to issue 002's script before proceeding (don't
+     paper over it here).
+3. As an independent cross-check of the rewrite logic (not strictly
+   required now that step 2 above gives real, complete `npm publish
+   --dry-run` output, but cheap and worth doing): spot-check 2-3 packages'
+   dry-run output by eye — root `typetrack` (no rewrite needed), one
+   single-dependency-tier package (`packages/react`), and one with both a
+   rewritten `workspace:*` and `file:../..` dep (`packages/next`) — and
+   confirm the `^0.1.0` values are correct for each.
 4. Document this verification (the commands run and their actual output,
    abbreviated) inside `RELEASING.md` itself (see below) as evidence, the
    same way Phase 20's `CONTRIBUTING.md` documented its own CI
