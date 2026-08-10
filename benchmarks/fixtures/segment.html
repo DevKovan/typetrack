@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>@segment/analytics-next cold-start fixture</title>
+  </head>
+  <body>
+    <!--
+      @segment/analytics-next init options below, and why each is set --
+      verified against this workspace's own installed
+      `@segment/analytics-next@1.84.1` type definitions
+      (`benchmarks/node_modules/@segment/analytics-next/dist/types/browser/
+      settings.d.ts`'s `AnalyticsBrowserSettings`/`InitOptions`), not copied
+      from plan/phase-19-performance-benchmarking/BRIEF.md's illustrative
+      sketch without checking. Per BRIEF Design decision 4, this is a
+      *reduced-feature-set* comparison, not this SDK's default configuration
+      -- see benchmarks/results/cold-start-memory.md's methodology section.
+
+      Real deviation from the issue file's sketch: `AnalyticsBrowser.load()`
+      does not accept an `{ integrations: { "Segment.io": { apiHost } } }`
+      argument as its *third* positional argument the way the issue's
+      illustrative call sketched -- `settings.d.ts`'s real `load(settings,
+      options?)` signature only takes two arguments, and
+      `IntegrationsInitOptions`/`Segment.io` overrides live inside that
+      second `options.integrations` object, which is where it's set below.
+
+      - `settings.cdnURL`: redirects Segment's own settings-fetch-on-init
+        (BRIEF's "Research grounding" section names this by name -- "a CDN
+        'integrations settings' JSON fetch before anything else runs") from
+        Segment's real CDN to this workspace's local stub server (issue
+        001's Bun.serve(), extended in this issue with a
+        `/v1/projects/:writeKey/settings` route returning a minimal, valid
+        `CDNSettings` response -- confirmed by reading
+        `dist/cjs/browser/index.js`'s `loadCDNSettings()`, which fetches
+        exactly `${cdnURL}/v1/projects/${writeKey}/settings`).
+      - `options.integrations["Segment.io"].apiHost` /`.protocol`: redirects
+        the actual event-ingestion endpoint (`SegmentioIntegrationInitOptions`,
+        `Pick<SegmentioSettings, 'apiHost' | 'protocol' | ...>`) to this same
+        stub too, so even a real `track()` call would stay on localhost --
+        not exercised by this cold-start fixture, but kept symmetric with
+        the settings-fetch redirect above.
+      - "Destination-plugin auto-loading" (BRIEF Design decision 4's third
+        named heavy feature) is disabled implicitly, not via an init option:
+        `dist/cjs/browser/index.js`'s `hasLegacyDestinations()` only
+        attempts to auto-load extra device-mode destination bundles when the
+        fetched `CDNSettings.integrations` object has more than one key --
+        this fixture's stub settings response (see `stub-server.ts`) only
+        ever declares `Segment.io`, so no destination-plugin fetch is ever
+        attempted, real or local.
+      - `initialPageview: false`: explicit for documentation even though
+        it's already this SDK's own default (`options.initialPageview` is
+        only honored when truthy) -- makes clear no automatic page-call
+        analog to the other two SDKs' "autocapture pageview" is in play here
+        either.
+    -->
+    <script src="/vendor/segment-analytics-next.js"></script>
+    <script>
+      const { AnalyticsBrowser } = window.AnalyticsNext;
+      const analytics = AnalyticsBrowser.load(
+        { writeKey: "stub-write-key", cdnURL: window.location.origin },
+        {
+          initialPageview: false,
+          integrations: {
+            "Segment.io": {
+              apiHost: `${window.location.host}/v1`,
+              protocol: "http",
+            },
+          },
+        },
+      );
+      analytics.ready(() => {
+        window.__ready = true;
+        window.__readyAt = performance.now();
+      });
+    </script>
+  </body>
+</html>

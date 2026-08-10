@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>posthog-js cold-start fixture</title>
+  </head>
+  <body>
+    <!--
+      posthog-js init options below, and why each is set -- verified
+      against this workspace's own installed `posthog-js@1.414.0` type
+      definitions (`benchmarks/node_modules/posthog-js/lib/src/types.d.ts`'s
+      `PostHogConfig`, which re-exports the real shape from
+      `@posthog/types@1.402.2`'s `posthog-config.d.ts`), not copied from
+      plan/phase-19-performance-benchmarking/BRIEF.md's illustrative sketch
+      without checking. Per BRIEF Design decision 4, this is a *reduced-
+      feature-set* comparison, not posthog-js's default/out-of-the-box
+      configuration -- see benchmarks/results/cold-start-memory.md's
+      methodology section.
+
+      - api_host: points every request this SDK would make at this
+        workspace's own local stub server (issue 001's Bun.serve()), not
+        PostHog's real ingestion infrastructure -- removes vendor server
+        response latency as a confound in what's meant to be a client-side
+        SDK overhead measurement.
+      - autocapture: false -- disables automatic DOM event-listener wiring
+        and element-tree scanning for clicks/form submits/etc, one of the
+        "heaviest optional init-time features" BRIEF Design decision 4 names
+        explicitly.
+      - capture_pageview: false -- disables the automatic `$pageview` event
+        this SDK otherwise fires synchronously during init.
+      - disable_session_recording: true -- disables rrweb-based session
+        recording setup (DOM mutation observers, canvas/network capture
+        wiring), the other feature BRIEF Design decision 4 names by name.
+      - advanced_disable_flags: true -- the current, non-deprecated option
+        (its doc comment: "@deprecated Use `advanced_disable_flags` instead"
+        appears directly on the older `advanced_disable_decide` field this
+        phase's issue file sketched) that skips the `/flags` network request
+        entirely, i.e. feature-flag polling and PostHog's remote-config
+        fetch -- both explicitly called out in BRIEF's "Research grounding"
+        section as phone-home-on-init behavior this comparison must avoid.
+      - disable_surveys / disable_web_experiments / disable_product_tours /
+        disable_conversations: true -- disables four more optional
+        product-surface subsystems this SDK otherwise initializes.
+      - disable_external_dependency_loading: true -- belt-and-suspenders on
+        top of the flags above: even if one of those features were
+        re-enabled by a future config change, this stops the SDK from
+        lazily `<script>`-injecting any *additional* external asset
+        (recorder.js, surveys.js, toolbar.js) at runtime, keeping this
+        fixture's actual network footprint to exactly the one script tag
+        below plus (if `advanced_disable_flags` were ever removed) the
+        `/flags` call to this same stub -- never a real external host.
+    -->
+    <script src="/vendor/posthog-js.js"></script>
+    <script>
+      window.posthog.init("phc_stub_dummy_key", {
+        api_host: window.location.origin,
+        autocapture: false,
+        capture_pageview: false,
+        disable_session_recording: true,
+        advanced_disable_flags: true,
+        disable_surveys: true,
+        disable_web_experiments: true,
+        disable_product_tours: true,
+        disable_conversations: true,
+        disable_external_dependency_loading: true,
+        loaded: () => {
+          window.__ready = true;
+          window.__readyAt = performance.now();
+        },
+      });
+    </script>
+  </body>
+</html>

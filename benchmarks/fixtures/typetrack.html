@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>typetrack cold-start fixture</title>
+  </head>
+  <body>
+    <!--
+      typetrack's own baseline for issue 004's cross-library cold-start +
+      memory comparison. No optional features are disabled here (there is
+      nothing heavy to disable -- see src/index.performance.test.ts and
+      plan/phase-19-performance-benchmarking/BRIEF.md's "What's free when
+      unused" precedent: middleware, plugins, and validation are all opt-in
+      and simply aren't constructed below) -- this fixture measures the
+      cheapest possible real construction, `createAnalytics({ provider:
+      noopProvider })`, exactly like `benchmarks/internal.bench.ts`'s own
+      `createBaselineAnalytics()` (issue 002).
+
+      `createAnalytics()` has no "ingestion endpoint" config knob to point
+      at this stub server the way the three vendor SDK fixtures do --
+      `noopProvider` accepts every call and never makes a network request at
+      all (see `src/providers/index.ts`), so there's no API host/write key
+      to redirect. This fixture is still served by the same stub server as
+      the vendor fixtures (`/dist/index.global.js`, issue 001's `/dist/*`
+      route) purely for a consistent, single-process harness across all
+      four fixtures, not because typetrack itself needs an ingestion stub.
+    -->
+    <script src="/dist/index.global.js"></script>
+    <script>
+      const { createAnalytics, noopProvider } = window.Typetrack;
+      createAnalytics({ provider: noopProvider });
+      window.__ready = true;
+      window.__readyAt = performance.now();
+    </script>
+  </body>
+</html>

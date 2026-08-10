@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>@rudderstack/analytics-js cold-start fixture</title>
+  </head>
+  <body>
+    <!--
+      @rudderstack/analytics-js load options below, and why each is set --
+      verified against this workspace's own installed
+      `@rudderstack/analytics-js@3.31.6` type definitions
+      (`benchmarks/node_modules/@rudderstack/analytics-js/dist/npm/
+      index.d.mts`'s `LoadOptions`) and its own README's "Available exports"
+      section, not copied from
+      plan/phase-19-performance-benchmarking/BRIEF.md's illustrative sketch
+      without checking. Per BRIEF Design decision 4, this is a
+      *reduced-feature-set* comparison, not this SDK's default configuration
+      -- see benchmarks/results/cold-start-memory.md's methodology section.
+
+      Real deviations from the issue file's sketch:
+
+      1. `window.rudderanalytics` is not itself a ready-to-call instance the
+         way the issue's illustrative `rudderanalytics.load(...)` call
+         assumed. This package's UMD build sets
+         `global.rudderanalytics = { RudderAnalytics: class }` -- a class,
+         not an instance -- matching this package's own README ("Available
+         exports": `const analytics = new RudderAnalytics(); analytics.load(...)`),
+         so this fixture constructs the instance itself before calling
+         `.load()`.
+      2. `/vendor/rudderstack-analytics-js.js` (`stub-server.ts`) serves the
+         "bundled" export (`dist/npm/modern/bundled/umd/index.js`), not
+         issue 001's original "default" export choice
+         (`dist/npm/modern/umd/index.js`) -- see `stub-server.ts`'s own
+         header comment on `vendorBundles` for why: even with `plugins: []`
+         and `loadIntegration: false` set below, the "default" export still
+         made four real `fetch()` calls to `cdn.rudderlabs.com` for *core*
+         queue-delivery plugin chunks that aren't controlled by the
+         `plugins` load option at all (confirmed by hand via this spec's own
+         `page.on("request")` listener while iterating on this fixture).
+         Per this package's own README, the "bundled" export is the real,
+         documented knob that "contain[s] the plugins code as part of the
+         bundle in build time" instead of fetching it at runtime -- the
+         actual fix for "no network calls leaving localhost", not a
+         workaround.
+
+      - `dataPlaneUrl` (the `load()` call's 2nd positional argument): points
+        this SDK's real event-ingestion endpoint at this workspace's local
+        stub server (issue 001's Bun.serve()) instead of RudderStack's real
+        data-plane infrastructure.
+      - `configUrl`: redirects the source-config fetch RudderStack's own
+        research-grounding paragraph in BRIEF.md calls out by name ("a
+        similar source-config fetch") to this same stub -- confirmed by
+        reading `getSourceConfigURL()`, which resolves to
+        `<configUrl-origin>/sourceConfig/` (a route this issue adds to
+        `stub-server.ts`, returning the minimal valid
+        `{ source: { id, config, destinations: [], ... } }` shape
+        `isValidSourceConfig()` requires -- an empty `destinations` array
+        also means no device-mode destination is ever discovered to
+        auto-load in the first place).
+      - `loadIntegration: false`: the direct config knob for BRIEF Design
+        decision 4's "destination-plugin auto-loading" -- stops this SDK
+        from attempting to load any device-mode destination SDK even if the
+        (stubbed, empty) source config ever listed one.
+      - `plugins: []`: an unspecified `plugins` load option is replaced with
+        a non-empty `defaultOptionalPluginsList` before `.load()` runs
+        (confirmed in `normalizeLoadOptions`); passing `[]` explicitly
+        disables every *optional* plugin this SDK would otherwise load (the
+        *core* delivery-queue plugins are unaffected by this option -- see
+        deviation 2 above for how those are actually kept off the network).
+      - `polyfillIfRequired: false`: this SDK's own default
+        (`polyfillIfRequired: true`) conditionally `<script>`-injects a
+        legacy-JS-engine polyfill bundle from `polyfill-fastly.io` (a real
+        external host, confirmed by reading `prepareBrowserCapabilities()`/
+        `POLYFILL_URL`) when it detects a legacy DOM/JS engine. Modern
+        headless Chromium never trips that detection, so this fetch was
+        never actually observed firing in this fixture -- this option is
+        set anyway, explicitly, as belt-and-suspenders so this fixture's
+        real network footprint can never depend on how a given Chromium
+        build's feature-detection happens to classify itself.
+    -->
+    <script src="/vendor/rudderstack-analytics-js.js"></script>
+    <script>
+      const rudderanalytics = new window.rudderanalytics.RudderAnalytics();
+      window.rudderanalytics = rudderanalytics;
+      rudderanalytics.load("stub-write-key", window.location.origin, {
+        configUrl: window.location.origin,
+        loadIntegration: false,
+        plugins: [],
+        polyfillIfRequired: false,
+      });
+      rudderanalytics.ready(() => {
+        window.__ready = true;
+        window.__readyAt = performance.now();
+      });
+    </script>
+  </body>
+</html>

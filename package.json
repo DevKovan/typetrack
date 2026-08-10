@@ -46,7 +46,7 @@
     "lint": "oxlint",
     "typecheck": "tsgo --noEmit",
     "typecheck:tsc": "tsc --noEmit",
-    "test": "bun test --conditions=browser --path-ignore-patterns='e2e/**'",
+    "test": "bun test --conditions=browser --path-ignore-patterns='e2e/**' --path-ignore-patterns='benchmarks/tests/**'",
     "knip": "knip",
     "size": "size-limit"
   },

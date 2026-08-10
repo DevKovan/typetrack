@@ -8,7 +8,7 @@
     "bench:browser": "playwright test",
     "bundle-size-report": "bun run bundle-size-report.ts",
     "tree-shake-report": "bun run tree-shake-report.ts",
-    "test": "bun test"
+    "test": "bun test --path-ignore-patterns='tests/**'"
   },
   "devDependencies": {
     "@playwright/test": "1.62.1",
