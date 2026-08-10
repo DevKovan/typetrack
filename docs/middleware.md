@@ -42,8 +42,8 @@ reported to every registered middleware's `onError`, with
 
 ## Built-in middlewares
 
-All six live under `src/middleware/`. None are auto-registered — every one
-requires an explicit `.use(...)` call.
+All seven live under `src/middleware/`. None are auto-registered — every
+one requires an explicit `.use(...)` call.
 
 ### `redactMiddleware({ fields, replacement?, targets? })`
 
@@ -126,6 +126,14 @@ side, since they never replace the event object.
 analytics.use(redactMiddleware({ fields: ["email"] }));      // transforms — register first
 analytics.use(timingMiddleware({ onTiming: (e, ms) => console.log(e.name, ms) })); // register after
 ```
+
+### `debugOverlayMiddleware(options?)`
+
+A pure observer (`after` only, never `before`) that renders a small
+fixed-position panel of the most recently dispatched events directly on
+the page — browser-only, no-op elsewhere. See
+[Tooling § Debug overlay](./tooling.md#debug-overlay) for its options and a
+full usage example.
 
 ## Writing custom middleware
 

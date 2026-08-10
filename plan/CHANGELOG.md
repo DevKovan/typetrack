@@ -376,3 +376,23 @@ are the record, this is just a trail of what happened when.
   pass and a full clean-checkout `build:all`/`size`/`e2e`/`lint`/
   `typecheck`/`test`/`knip` run, all green. Per policy, this phase's issue
   files stay in `plan/phase-17-documentation/` permanently.
+- Phase 18 (tooling extras): added `typetrack schema` and `typetrack docs`
+  CLI commands (`src/cli/schema.ts`/`docs.ts`), both built on a shared
+  `buildEventJsonSchemas()` extraction (`src/devServer/schemaExport.ts`,
+  also now deduplicating the dev server's existing `GET /schema` handler) —
+  the first writes raw JSON Schema to disk or stdout, the second renders a
+  Markdown event catalog (`renderEventCatalog`, default `EVENTS.md`, meant
+  to be committed) via the same data. Added a live event inspector UI
+  served at the dev server's previously-unhandled `GET /` route
+  (`src/devServer/inspectorPage.ts`), a dependency-free HTML page consuming
+  the already-shipped `/events`, `/events/stream`, and `/schema` endpoints.
+  Added `debugOverlayMiddleware()` (`src/middleware/debugOverlay.ts`), a
+  new opt-in, browser-only, pure-observer built-in middleware rendering a
+  small in-page panel of recently dispatched events. A VSCode extension was
+  considered and deliberately deferred, not silently dropped — TypeScript's
+  own language service against `createAnalytics<Events>()`'s generic
+  parameter already covers the main autocomplete/type-checking need; see
+  `plan/phase-18-tooling-extras/BRIEF.md`'s Design decision 1. All four
+  pieces are documented and cross-linked in a new `docs/tooling.md` guide.
+  Per policy, this phase's issue files stay in
+  `plan/phase-18-tooling-extras/` permanently.

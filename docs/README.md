@@ -26,12 +26,15 @@ code, event names, or payloads.
   (pageviews, clicks, scroll depth, errors, web vitals, and more) and how
   to write your own.
 - **[Middleware](./middleware.md)** — the `.use()` chain, execution order,
-  and the six built-in middlewares (redaction, PII filtering, sampling,
-  logging, enrichment, timing).
+  and the seven built-in middlewares (redaction, PII filtering, sampling,
+  logging, enrichment, timing, and a debug overlay).
 - **[Performance](./performance.md)** — what's free, what's opt-in cost,
   and the current bundle-size/regression budgets.
 - **[Comparison](./comparison.md)** — typetrack vs. direct PostHog/Segment/
   RudderStack SDK usage.
+- **[Tooling](./tooling.md)** — the `typetrack schema`/`typetrack docs` CLI
+  commands, the dev server's event inspector UI, and the debug overlay
+  middleware.
 - **[FAQ](./faq.md)** — fast answers to common questions, linking to the
   guide above that covers each topic in full.
 
