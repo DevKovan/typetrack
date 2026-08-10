@@ -1,10 +1,30 @@
 {
   "name": "@typetrack/remix",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "React Router v8 framework-mode bindings (AnalyticsProvider re-export, useAnalytics re-export, route-aware AnalyticsPageView) for typetrack.",
+  "keywords": [
+    "analytics",
+    "typescript",
+    "typetrack",
+    "remix",
+    "react-router",
+    "react"
+  ],
   "license": "MIT",
   "type": "module",
   "private": false,
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/DevKovan/typetrack.git",
+    "directory": "packages/remix"
+  },
+  "homepage": "https://github.com/DevKovan/typetrack/tree/main/packages/remix#readme",
+  "bugs": {
+    "url": "https://github.com/DevKovan/typetrack/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",

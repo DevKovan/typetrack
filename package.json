@@ -1,10 +1,27 @@
 {
   "name": "typetrack",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Typed, zero-runtime-cost analytics SDK.",
+  "keywords": [
+    "analytics",
+    "typescript",
+    "tracking",
+    "telemetry",
+    "events",
+    "provider-agnostic",
+    "type-safe"
+  ],
   "license": "MIT",
   "type": "module",
   "private": false,
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/DevKovan/typetrack.git"
+  },
+  "homepage": "https://github.com/DevKovan/typetrack#readme",
+  "bugs": {
+    "url": "https://github.com/DevKovan/typetrack/issues"
+  },
   "workspaces": [
     "benchmarks",
     "e2e",

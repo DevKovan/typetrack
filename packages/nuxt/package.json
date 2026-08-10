@@ -1,10 +1,30 @@
 {
   "name": "@typetrack/nuxt",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Nuxt 4 module (SSR-safe provide/inject registration, automatic route-change pageview tracking) for typetrack.",
+  "keywords": [
+    "analytics",
+    "typescript",
+    "typetrack",
+    "nuxt",
+    "nuxt4",
+    "vue"
+  ],
   "license": "MIT",
   "type": "module",
   "private": false,
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/DevKovan/typetrack.git",
+    "directory": "packages/nuxt"
+  },
+  "homepage": "https://github.com/DevKovan/typetrack/tree/main/packages/nuxt#readme",
+  "bugs": {
+    "url": "https://github.com/DevKovan/typetrack/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",

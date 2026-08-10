@@ -1,10 +1,28 @@
 {
   "name": "@typetrack/astro",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Astro integration (astro:config:setup + injectScript automatic pageview tracking) for typetrack.",
+  "keywords": [
+    "analytics",
+    "typescript",
+    "typetrack",
+    "astro"
+  ],
   "license": "MIT",
   "type": "module",
   "private": false,
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/DevKovan/typetrack.git",
+    "directory": "packages/astro"
+  },
+  "homepage": "https://github.com/DevKovan/typetrack/tree/main/packages/astro#readme",
+  "bugs": {
+    "url": "https://github.com/DevKovan/typetrack/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
