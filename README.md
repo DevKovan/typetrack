@@ -80,10 +80,15 @@ See [`CONTRIBUTING.md`](./CONTRIBUTING.md) for known CI-reliability
 findings (a GitHub Actions trigger-flakiness investigation and its
 evidence) and the flaky-test triage process/results.
 
+See [`RELEASING.md`](./RELEASING.md) for the npm publish process — version
+bump strategy, the `release.yml` workflow, and the one-time setup needed
+before the first real publish.
+
 ## Status
 
 Pre-1.0. The npm publish pipeline (`release.yml`) is built and dry-run
-verified; the first real publish is a pending manual step. Phases 0-16 have landed (canonical event
+verified; the first real publish is a pending manual step — see
+[`RELEASING.md`](./RELEASING.md). Phases 0-16 have landed (canonical event
 model, multi-provider routing, middleware, context auto-capture, plugins,
 privacy/consent, reliability/offline queue, runtime-agnostic adapters,
 remaining framework wrappers, validation hardening, testing infrastructure)

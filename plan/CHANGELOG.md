@@ -434,3 +434,32 @@ are the record, this is just a trail of what happened when.
   Findings and reproduction commands live in the new root
   `CONTRIBUTING.md`; full investigation detail stays in
   `plan/phase-20-ci-hardening/`.
+- Phase 21 (npm publish CI + SEO pass): bumped the 9 publishable packages
+  (root `typetrack` + `packages/{react,next,vue,nuxt,svelte,solid,astro,
+  remix}`) from `0.0.0` to `0.1.0` (lockstep, no Changesets — see
+  `plan/phase-21-npm-publish-seo/BRIEF.md`'s versioning-strategy section),
+  added `publishConfig.access:public`/`repository`/`homepage`/`bugs`/
+  `keywords` fields, and added a root + per-package MIT `LICENSE` (none
+  existed before despite every `package.json` claiming MIT). Added
+  `scripts/publish.ts`, which rewrites each package's `file:../..`/
+  `workspace:*` local-dev dependency lines to real `^x.y.z` semver
+  (reading live `package.json` versions, never `bun.lock`, which was found
+  to silently cache a stale workspace version after a bump) immediately
+  before an `npm publish --access public --provenance` call, then restores
+  them — `bun publish` was the original plan but turned out to have no
+  `--provenance` flag (oven-sh/bun#15601), a correction made mid-phase and
+  documented in the BRIEF. Also fixed root `package.json`'s `bin` field
+  (a leading `./dist/cli.js` silently gets stripped by npm's publish
+  normalization; found via real `npm publish --dry-run` output). Added
+  `.github/workflows/release.yml` (`workflow_dispatch` only, `dry_run`
+  input defaulting `true`, additive to `qa.yml`) and 8 missing per-package
+  `README.md` files (npm shows a package's own README, not the repo
+  root's). Root `README.md` gained an npm badges row and an updated
+  Status line. This phase does **not** execute a real npm publish — no
+  npm login or `NPM_TOKEN` secret exists in the environment that built
+  this pipeline, and a real publish is a deliberate, hard-to-reverse
+  action reserved for a human — `bun run scripts/publish.ts --dry-run`
+  was run for real against all 9 packages and confirmed clean (correct
+  tarball contents, correct rewritten dependency versions, no leftover
+  working-tree changes); the manual first-publish checklist lives in the
+  new root `RELEASING.md`.
