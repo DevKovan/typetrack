@@ -28,7 +28,7 @@ reach for `enrichmentMiddleware`/a custom `before()`, or
 The zero-middleware, single-provider fast path returns whatever the
 provider's own `track()` returns (often synchronous `void`); registering
 middleware or using a multi-provider array always returns a `Promise`. See
-[`docs/performance.md`](./performance.md#what-s-opt-in-cost).
+[`docs/performance.md`](./performance.md#whats-opt-in-cost).
 
 **Is validation required?**
 No. `schemas` is optional per event — an event with no `schemas[event]`

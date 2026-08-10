@@ -350,3 +350,29 @@ are the record, this is just a trail of what happened when.
   already be closed by Phase 14 (`7e2c8d2` through `4c3a3db`); no fix was
   needed or made. Per policy, this phase's issue files stay in
   `plan/phase-16-testing-infrastructure/` permanently.
+- Phase 17 (documentation): added a new top-level `docs/` directory with ten
+  guides — architecture, cookbook, migration, three per-provider references
+  (GA4/PostHog/Segment), plugins, middleware, performance, comparison (vs.
+  direct PostHog/Segment/RudderStack SDK usage), and FAQ — indexed from
+  `docs/README.md`. Refreshed the root `README.md`, which had gone stale:
+  `## Usage` still showed the pre-Phase-6 `track(event, payload, meta)`/
+  positional-argument shape instead of the real, current
+  `AnalyticsProvider.track(event: CanonicalEvent)` signature, and `##
+  Status` still read "Early scaffold" after 16 landed phases. Corrected a
+  divergence between `plan/VISION.md`'s aspirational pipeline diagram
+  ("Validation → Middleware → Context → Enrichment → Filtering → Sampling →
+  Routing → Provider Mapping") and the real, shipped `track()` order (consent
+  → deprecated-event resolution → dev-server mirror → validation →
+  canonical-event construction, including context capture → middleware
+  `before` chain → per-provider routing/sampling/capability-gated dispatch →
+  adapter-internal event mapping → middleware `after` chain) —
+  `docs/architecture.md` documents the real order; "Enrichment"/"Filtering"/
+  "Sampling" are middleware and per-provider routing config, not fixed
+  pipeline stages. Every code sample across the new guides is either copied
+  verbatim from a real, cited source file or clearly labeled illustrative —
+  no new doc-sample-compilation tooling was added (existing `examples/*`
+  packages already provide equivalent, already-tested coverage); this
+  phase's issue 011 instead did a manual link/anchor/citation verification
+  pass and a full clean-checkout `build:all`/`size`/`e2e`/`lint`/
+  `typecheck`/`test`/`knip` run, all green. Per policy, this phase's issue
+  files stay in `plan/phase-17-documentation/` permanently.

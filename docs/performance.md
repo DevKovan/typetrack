@@ -74,7 +74,7 @@ its code in a tree-shaking bundler.
 ## Practical guidance
 
 - Use `samplingMiddleware`/`ProviderEntry.sampling` to cut event volume
-  before it reaches a provider — see [`docs/middleware.md`](./middleware.md#samplingmiddlewarerate)
+  before it reaches a provider — see [`docs/middleware.md`](./middleware.md#samplingmiddleware-rate-)
   for the two-layer distinction.
 - If a provider declares `capabilities.batch: true` and implements
   `trackBatch`, `reliability`'s `batch` option coalesces multiple queued
