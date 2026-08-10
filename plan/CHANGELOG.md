@@ -417,3 +417,20 @@ are the record, this is just a trail of what happened when.
   prior "not yet published, Phase 19's job" placeholder. Per policy, this
   phase's issue files stay in `plan/phase-19-performance-benchmarking/`
   permanently.
+- Phase 20 (CI hardening, trimmed mid-phase — branch protection split out
+  to a new Phase 22): investigated Phases 16-19's repeated, previously
+  unverified claim of GitHub Actions push-trigger flakiness using GitHub's
+  Events API (not the naive commit-vs-run diff prior phases implied) and
+  found it real — 11 of 80 real pushes (13.75%) in the investigated window
+  triggered no workflow run, clustered in two short bursts, GitHub-side
+  and not fixable from this repo's config (ruled out rate limiting,
+  billing/minutes, and `qa.yml` misconfiguration with evidence). Also ran
+  `bun test --rerun-each=5` and found one systemic (not CI-affecting)
+  flaky-test root cause: happy-dom's `GlobalRegistrator.unregister()`
+  threw on reruns in 9 files whose `testSetup.ts` registers DOM globals at
+  module load rather than per-test; fixed with an `isRegistered` guard at
+  all 9 call sites. Real CI (`bun run test`, no flags) was independently
+  confirmed clean across three back-to-back runs, before and after.
+  Findings and reproduction commands live in the new root
+  `CONTRIBUTING.md`; full investigation detail stays in
+  `plan/phase-20-ci-hardening/`.
