@@ -1,0 +1,47 @@
+name: release
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run (no real publish to npm)"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          registry-url: "https://registry.npmjs.org/"
+      - name: Install dependencies
+        run: bun install
+      - name: Build
+        # Mirrors qa.yml's own Build step exactly -- see that file's
+        # comment for why `build:all` needs no extra steps here.
+        run: bun run build:all
+      - name: Publish
+        # scripts/publish.ts is the actual publish tool (npm publish, not
+        # bun publish -- bun publish has no --provenance flag; see
+        # plan/phase-21-npm-publish-seo/BRIEF.md's "Correction, found
+        # during implementation" section). `dry_run` defaults to `true` --
+        # a real publish requires explicitly setting it to `false` when
+        # triggering this workflow, never the other way around.
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            bun run scripts/publish.ts --dry-run
+          else
+            bun run scripts/publish.ts
+          fi
