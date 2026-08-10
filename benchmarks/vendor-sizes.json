@@ -1,0 +1,10 @@
+{
+  "source": "https://bundlephobia.com/api/size?package=<name>",
+  "fetchedAt": "2026-08-10",
+  "notes": "minifiedBytes/gzipBytes/hasJSModule sourced from bundlephobia's public API (real minified+gzip sizes computed by installing and bundling the actual published package, not a guess). hasSideEffects for @segment/analytics-next could not be re-confirmed via bundlephobia's API at implementation time (persistent HTTP 429 rate-limiting from bundlephobia.com across multiple retries) -- re-verified instead directly against the primary source, the package's own published package.json (https://registry.npmjs.org/@segment/analytics-next/1.84.1, and cross-checked against benchmarks/node_modules/@segment/analytics-next/package.json, the real installed copy): it declares \"sideEffects\": false explicitly, so hasSideEffects is false here, not the placeholder null this issue's own template used. posthog-js and @rudderstack/analytics-js declare no \"sideEffects\" field at all in their own published package.json (also cross-checked against registry.npmjs.org and the real installed node_modules copies) -- a bundler must conservatively treat an unset sideEffects field as \"may have side effects\", consistent with bundlephobia's own reported hasSideEffects: true for both.",
+  "packages": {
+    "posthog-js": { "version": "1.414.0", "minifiedBytes": 236469, "gzipBytes": 77616, "hasSideEffects": true, "hasJSModule": true },
+    "@segment/analytics-next": { "version": "1.84.1", "minifiedBytes": 103185, "gzipBytes": 28246, "hasSideEffects": false, "hasJSModule": true },
+    "@rudderstack/analytics-js": { "version": "3.31.6", "minifiedBytes": 106918, "gzipBytes": 31123, "hasSideEffects": true, "hasJSModule": true }
+  }
+}

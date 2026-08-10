@@ -55,7 +55,13 @@
       // entry pattern" hint by knip itself), unlike `stub-server.ts`, which
       // is only started via a shell string inside a Playwright
       // `webServer.command` knip's script-detection doesn't see.
-      "entry": ["stub-server.ts"],
+      // `tree-shake-fixture/entry.ts` (Phase 19 issue 003) is the same
+      // shape as `stub-server.ts`: `tree-shake-report.ts`'s `buildFixture()`
+      // passes its path to `esbuild` as a CLI argument string (via
+      // `spawnSync`), not a static TS `import` -- knip's import-graph
+      // analysis can't see that usage, so it needs its own explicit entry
+      // to avoid a false-positive "unused file" finding.
+      "entry": ["stub-server.ts", "tree-shake-fixture/entry.ts"],
       // The three vendor SDK devDependencies (`posthog-js`,
       // `@segment/analytics-next`, `@rudderstack/analytics-js`) are loaded
       // by fixture HTML `<script>` tags (issue 004) and by `stub-server.ts`
