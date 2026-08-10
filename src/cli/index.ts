@@ -21,6 +21,10 @@ const COMMANDS: Record<string, { usage: string; run: (argv: string[]) => Promise
     usage: "typetrack schema [--config <path>] [--out <path>]",
     run: async (argv) => (await import("./schema")).runSchemaCommand(argv),
   },
+  docs: {
+    usage: "typetrack docs [--config <path>] [--out <path>]",
+    run: async (argv) => (await import("./docs")).runDocsCommand(argv),
+  },
 };
 
 const [, , command, ...rest] = process.argv;

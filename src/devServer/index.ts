@@ -24,3 +24,4 @@ export {
   type DevServerOptions,
 } from "./server";
 export { buildEventJsonSchemas, type EventJsonSchemas } from "./schemaExport";
+export { renderEventCatalog } from "./eventCatalog";
