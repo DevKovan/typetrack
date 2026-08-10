@@ -42,7 +42,7 @@ reported to every registered middleware's `onError`, with
 
 ## Built-in middlewares
 
-All seven live under `src/middleware/`. None are auto-registered — every
+All eight live under `src/middleware/`. None are auto-registered — every
 one requires an explicit `.use(...)` call.
 
 ### `redactMiddleware({ fields, replacement?, targets? })`

@@ -26,8 +26,8 @@ code, event names, or payloads.
   (pageviews, clicks, scroll depth, errors, web vitals, and more) and how
   to write your own.
 - **[Middleware](./middleware.md)** — the `.use()` chain, execution order,
-  and the seven built-in middlewares (redaction, PII filtering, sampling,
-  logging, enrichment, timing, and a debug overlay).
+  and the eight built-in middlewares (redaction, PII filtering, sampling,
+  logging, enrichment, version injection, timing, and a debug overlay).
 - **[Performance](./performance.md)** — what's free, what's opt-in cost,
   and the current bundle-size/regression budgets.
 - **[Comparison](./comparison.md)** — typetrack vs. direct PostHog/Segment/

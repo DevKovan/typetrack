@@ -151,7 +151,7 @@ documented, accepted limitation, not a bug — see `debugOverlay.ts`'s header
 comment and `plan/phase-18-tooling-extras/BRIEF.md`'s Design decision 4.
 
 See also [Middleware](./middleware.md#built-in-middlewares) for how it sits
-alongside the other six built-in middlewares in the `.use()` chain.
+alongside the other seven built-in middlewares in the `.use()` chain.
 
 ## Not built (yet)
 
